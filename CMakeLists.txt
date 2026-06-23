@@ -10,15 +10,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(tinyrenderer src/main.cpp)
 
+add_subdirectory(src/app)
 add_subdirectory(src/resources)
 add_subdirectory(src/data)
 add_subdirectory(src/rendering)
 
-find_package(fmt REQUIRED)
-
-target_link_libraries(tinyrenderer
-    PRIVATE
-        rendering_vulkan
-        fmt::fmt
+target_link_libraries(tinyrenderer 
+    PRIVATE 
+        app
+        resources
+        data
+        rendering
 )
+
+target_link_libraries(tinyrenderer PRIVATE rendering_vulkan)
+
+find_package(fmt REQUIRED)
+target_link_libraries(tinyrenderer PRIVATE fmt::fmt)
 

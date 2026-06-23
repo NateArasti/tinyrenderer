@@ -6,6 +6,8 @@
 #include <fmt/base.h>
 #include <glm/glm.hpp>
 
+#include "application.h"
+#include "window.h"
 #include "renderer.h"
 #include "scene.h"
 #include "camera.h"
@@ -16,6 +18,7 @@
 constexpr std::string_view APP_NAME = "tinyrenderer";
 
 using namespace tr;
+using namespace tr::App;
 using namespace tr::Resources;
 using namespace tr::Data;
 using namespace tr::Rendering;
@@ -83,11 +86,34 @@ namespace {
 }
 
 int main() {
-    fmt::println("Hello, this is {}!", APP_NAME);
+    Application application{
+        .name = APP_NAME,
+        .version = "v0.0.1",
+        .window = std::make_unique<Window>(1280, 720, APP_NAME)
+    };
+    Window* window = application.window.get();
+
+    fmt::println("Starting {} with ({}, {}) window. Version={}.", application.name, window->width(), window->height(), application.version);
     
-    auto rhi = std::make_unique<Vulkan::VulkanRenderer>();
+    auto rhi = std::make_unique<Vulkan::VulkanRenderer>(application);
     auto renderer = std::make_unique<Renderer>(*rhi);
     auto camera = std::make_unique<Camera>();
+
     auto scene = createDefaultScene(*renderer);
-    renderer->renderScene(*camera, *scene);
+
+    while (!window->shouldClose()) {
+        window->pollEvents();
+
+        if (window->wasResized()) {
+            rhi->resize(window->width(), window->height());
+            window->clearResizedFlag();
+            fmt::println("Window was resized to ({}, {}).", window->width(), window->height());
+        }
+
+        if (window->width() != 0 || window->height() != 0) {
+            renderer->renderScene(*camera, *scene);
+        }
+    }
+
+    fmt::println("Session end.");
 }

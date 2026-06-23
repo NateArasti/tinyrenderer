@@ -32,6 +32,8 @@ namespace tr::Rendering {
         virtual void shutdown() = 0;
         virtual void clearResources() = 0;
 
+        virtual void resize(uint32_t width, uint32_t height) = 0;
+
         virtual void createShader(
             tr::Resources::Handle<tr::Data::Shader> handle,
             const tr::Data::Shader& shader) = 0;
