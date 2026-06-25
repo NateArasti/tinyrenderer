@@ -53,7 +53,7 @@ namespace tr::Rendering {
             }
 
             DrawCommand command {
-                .modelMatrix = object->transform.getModelMatrix(),
+                .modelMatrix = object->transform.getMatrix(),
                 .mesh = object->mesh,
                 .materials = std::span<const Handle<Material>>(object->materials)
             };

@@ -3,7 +3,8 @@
 #include "gameobject.h"
 
 namespace tr::Data {
-    struct Camera : public GameObject {
+    struct Camera {
+        Transform transform;
         float fov;
         float near;
         float far;
