@@ -5,11 +5,9 @@ using namespace tr::Data;
 
 namespace tr::Rendering {
     Renderer::Renderer(Rendering::RHI& rhi) : _renderingInterface(&rhi) {
-        _renderingInterface->init();
     }
 
     Renderer::~Renderer() {
-        _renderingInterface->shutdown();
     }
 
     void Renderer::clearState() {

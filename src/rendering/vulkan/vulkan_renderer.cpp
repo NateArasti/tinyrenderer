@@ -14,19 +14,16 @@
 
 namespace tr::Rendering::Vulkan {
     VulkanRenderer::VulkanRenderer(const tr::App::Application& application)
-        : _application(application) {
-    }
-
-    VulkanRenderer::~VulkanRenderer() {
-    }
-
-    void VulkanRenderer::init() {
+        : _application(application
+    ) {
         createInstance();
         createSurface();
         pickPhysicalDevice();
+        _msaaSamples = getMaxSampleCount();
         createLogicalDevice();
         createSwapchain();
         createImageViews();
+        createColorResources(); 
         createDescriptorSetLayout();
         createCommandPool();
         createCommandBuffers();
@@ -37,34 +34,19 @@ namespace tr::Rendering::Vulkan {
         _initialized = true;
     }
 
-    void VulkanRenderer::shutdown() {
+    VulkanRenderer::~VulkanRenderer() {
         if (!_initialized) {
             return;
         }
 
         _device.waitIdle();
         cleanupSwapchain();
-        _commandBuffers.clear();
-        _commandPool = nullptr;
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            _imageAvailableSemaphores[i] = nullptr;
-            _renderFinishedSemaphores[i] = nullptr;
-            _inFlightFences[i] = nullptr;
-        }
         clearResources();
-
-        _descriptorSetLayout = nullptr;
-        _descriptorPool = nullptr;
+        _commandBuffers.clear();
         _descriptorSets.clear();
         _uniformBuffers.clear();
         _uniformBuffersMemory.clear();
         _uniformBuffers.clear();
-        _queue = nullptr;
-        _device = nullptr;
-        _physicalDevice = nullptr;
-        _surface = nullptr;
-        _instance = nullptr;
-        _initialized = false;
     }
 
     void VulkanRenderer::clearResources() {
@@ -442,6 +424,65 @@ namespace tr::Rendering::Vulkan {
         }
     }
 
+    vk::SampleCountFlagBits VulkanRenderer::getMaxSampleCount() {
+        auto limits = _physicalDevice.getProperties().limits;
+        auto counts = limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts;
+        for (auto count : { vk::SampleCountFlagBits::e8, vk::SampleCountFlagBits::e4, vk::SampleCountFlagBits::e2 }) {
+            if (counts & count) return count;
+        }
+        return vk::SampleCountFlagBits::e1;
+    }
+
+    std::tuple<vk::raii::Image, vk::raii::DeviceMemory> VulkanRenderer::createImage(
+        uint32_t width, uint32_t height,
+        vk::Format format,
+        vk::SampleCountFlagBits samples,
+        vk::ImageUsageFlags usage,
+        vk::MemoryPropertyFlags properties
+    ) {
+        vk::ImageCreateInfo imageInfo{
+            .imageType = vk::ImageType::e2D,
+            .format = format,
+            .extent = { width, height, 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .samples = samples,
+            .tiling = vk::ImageTiling::eOptimal,
+            .usage = usage,
+            .sharingMode = vk::SharingMode::eExclusive,
+            .initialLayout = vk::ImageLayout::eUndefined
+        };
+        vk::raii::Image image(_device, imageInfo);
+        auto memReqs = image.getMemoryRequirements();
+        vk::raii::DeviceMemory memory(_device, vk::MemoryAllocateInfo{
+            .allocationSize = memReqs.size,
+            .memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits, properties)
+        });
+        image.bindMemory(*memory, 0);
+        return { std::move(image), std::move(memory) };
+    }
+
+    void VulkanRenderer::createColorResources() {
+        auto [image, memory] = createImage(
+            _swapchainExtent.width, _swapchainExtent.height,
+            _swapchainImageFormat, _msaaSamples,
+            vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransientAttachment,
+            vk::MemoryPropertyFlagBits::eDeviceLocal
+        );
+        _colorImage = std::move(image);
+        _colorImageMemory = std::move(memory);
+        _colorImageView = vk::raii::ImageView(_device, vk::ImageViewCreateInfo{
+            .image = *_colorImage,
+            .viewType = vk::ImageViewType::e2D,
+            .format = _swapchainImageFormat,
+            .subresourceRange = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0, .levelCount = 1,
+                .baseArrayLayer = 0, .layerCount = 1
+            }
+        });
+    }
+
 	void VulkanRenderer::createDescriptorSetLayout() {
 		vk::DescriptorSetLayoutBinding uboLayoutBinding{
             .binding = 0,
@@ -547,6 +588,8 @@ namespace tr::Rendering::Vulkan {
     }
 
     void VulkanRenderer::cleanupSwapchain() {
+        _colorImageView = nullptr;
+        _colorImage = nullptr;
         _swapchainImageViews.clear();
         _swapchainImages.clear();
         _swapchain = nullptr;
@@ -562,6 +605,7 @@ namespace tr::Rendering::Vulkan {
         cleanupSwapchain();
         createSwapchain();
         createImageViews();
+        createColorResources();
         _swapchainDirty = false;
     }
 
@@ -661,7 +705,7 @@ namespace tr::Rendering::Vulkan {
 	}
 
     void VulkanRenderer::transitionImageLayout(
-	    uint32_t imageIndex,
+	    vk::Image image,
 	    vk::ImageLayout old_layout, vk::ImageLayout new_layout,
 	    vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
 	    vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask
@@ -675,7 +719,7 @@ namespace tr::Rendering::Vulkan {
             .newLayout = new_layout,
             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = _swapchainImages[imageIndex],
+            .image = image,
             .subresourceRange = {
                 .aspectMask = vk::ImageAspectFlagBits::eColor,
                 .baseMipLevel = 0,
@@ -746,7 +790,7 @@ namespace tr::Rendering::Vulkan {
         };
 
 		vk::PipelineMultisampleStateCreateInfo multisampling{
-            .rasterizationSamples = vk::SampleCountFlagBits::e1, 
+            .rasterizationSamples = _msaaSamples, 
             .sampleShadingEnable = vk::False
         };
 
@@ -890,21 +934,29 @@ namespace tr::Rendering::Vulkan {
     void VulkanRenderer::recordFrameStartCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex) {
         vk::CommandBufferBeginInfo beginInfo{};
         commandBuffer.begin(beginInfo);
-
         transitionImageLayout(
-            imageIndex,
+            _swapchainImages[imageIndex],
             vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal,
-            vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::PipelineStageFlagBits2::eNone, vk::PipelineStageFlagBits2::eColorAttachmentOutput
+            {},  vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::PipelineStageFlagBits2::eColorAttachmentOutput
+        );
+        transitionImageLayout(
+            *_colorImage,
+            vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal,
+            vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::PipelineStageFlagBits2::eColorAttachmentOutput
         );
 
         vk::ClearValue clearValue;
         clearValue.color = vk::ClearColorValue(std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f});
         vk::RenderingAttachmentInfo colorAttachment{
-            .imageView = *_swapchainImageViews[imageIndex],
+            .imageView = *_colorImageView,
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .resolveMode = vk::ResolveModeFlagBits::eAverage,
+            .resolveImageView = *_swapchainImageViews[imageIndex],
+            .resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
-            .storeOp = vk::AttachmentStoreOp::eStore,
+            .storeOp = vk::AttachmentStoreOp::eDontCare,
             .clearValue = clearValue
         };
         vk::RenderingInfo renderingInfo{
@@ -930,10 +982,10 @@ namespace tr::Rendering::Vulkan {
     void VulkanRenderer::recordFrameEndCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex) {
         commandBuffer.endRendering();
         transitionImageLayout(
-            _currentImageIndex,
+            _swapchainImages[imageIndex],
             vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
-            vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::PipelineStageFlagBits2::eNone
+            vk::AccessFlagBits2::eColorAttachmentWrite, {},
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput, vk::PipelineStageFlagBits2::eBottomOfPipe
         );
         commandBuffer.end();
     }

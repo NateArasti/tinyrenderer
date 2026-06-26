@@ -33,16 +33,17 @@ namespace tr::Rendering::Vulkan {
         vk::raii::DebugUtilsMessengerEXT _debugMessenger = nullptr;
         vk::raii::SurfaceKHR _surface = nullptr;
 
-	    vk::raii::DescriptorSetLayout _descriptorSetLayout = nullptr;
         vk::raii::PhysicalDevice _physicalDevice = nullptr;
         vk::raii::Device _device = nullptr;
+        
+        vk::raii::DescriptorSetLayout _descriptorSetLayout = nullptr;
 
         uint32_t _queueIndex = ~0;
         vk::raii::Queue _queue = nullptr;
 
         std::vector<vk::raii::Buffer> _uniformBuffers;
         std::vector<vk::raii::DeviceMemory> _uniformBuffersMemory;
-        std::vector<void *> _uniformBuffersMapped;
+        std::vector<void*> _uniformBuffersMapped;
 
         vk::raii::DescriptorPool _descriptorPool = nullptr;
         std::vector<vk::raii::DescriptorSet> _descriptorSets;
@@ -55,6 +56,12 @@ namespace tr::Rendering::Vulkan {
 
         vk::raii::CommandPool _commandPool = nullptr;
         std::vector<vk::raii::CommandBuffer> _commandBuffers;
+
+        vk::SampleCountFlagBits _msaaSamples = vk::SampleCountFlagBits::e1;
+
+        vk::raii::Image _colorImage = nullptr;
+        vk::raii::DeviceMemory _colorImageMemory = nullptr;
+        vk::raii::ImageView _colorImageView = nullptr;
 
         std::array<vk::raii::Semaphore, MAX_FRAMES_IN_FLIGHT> _imageAvailableSemaphores = {
             nullptr,
@@ -96,14 +103,21 @@ namespace tr::Rendering::Vulkan {
         void cleanupSwapchain();
         void recreateSwapchain();
 
+        vk::SampleCountFlagBits getMaxSampleCount();
+        std::tuple<vk::raii::Image, vk::raii::DeviceMemory> createImage(
+            uint32_t width, uint32_t height,
+            vk::Format format,
+            vk::SampleCountFlagBits samples,
+            vk::ImageUsageFlags usage,
+            vk::MemoryPropertyFlags properties
+        );
+        void createColorResources();
+
         void transitionImageLayout(
-            uint32_t imageIndex,
-            vk::ImageLayout old_layout,
-            vk::ImageLayout new_layout,
-            vk::AccessFlags2 src_access_mask,
-            vk::AccessFlags2 dst_access_mask,
-            vk::PipelineStageFlags2 src_stage_mask,
-            vk::PipelineStageFlags2 dst_stage_mask
+            vk::Image image,
+            vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+            vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
+            vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask
         );
         std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(
             vk::DeviceSize size,
@@ -125,10 +139,7 @@ namespace tr::Rendering::Vulkan {
         VulkanRenderer(VulkanRenderer&&) = delete;
         VulkanRenderer& operator=(VulkanRenderer&&) = delete;
 
-        void init() override;
-        void shutdown() override;
         void clearResources() override;
-
         void resize(uint32_t width, uint32_t height) override;
 
         void createShader(
