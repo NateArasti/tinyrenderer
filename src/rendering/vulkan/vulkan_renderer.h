@@ -8,6 +8,7 @@
 #include <vulkan/vulkan_raii.hpp>
 
 #include "vulkan_shader.h"
+#include "vulkan_texture.h"
 #include "vulkan_material.h"
 #include "vulkan_mesh.h"
 
@@ -18,6 +19,7 @@ namespace tr::Rendering::Vulkan {
     class VulkanRenderer : public RHI {
     private:
         static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+        static constexpr uint32_t MAX_MATERIAL_DESCRIPTORS = 32;
 
         const std::vector<const char*> _requiredDeviceExtension = {
             vk::KHRSwapchainExtensionName
@@ -36,7 +38,9 @@ namespace tr::Rendering::Vulkan {
         vk::raii::PhysicalDevice _physicalDevice = nullptr;
         vk::raii::Device _device = nullptr;
         
+        vk::raii::DescriptorPool _descriptorPool = nullptr;
         vk::raii::DescriptorSetLayout _descriptorSetLayout = nullptr;
+        std::vector<vk::raii::DescriptorSet> _descriptorSets;
 
         uint32_t _queueIndex = ~0;
         vk::raii::Queue _queue = nullptr;
@@ -44,9 +48,6 @@ namespace tr::Rendering::Vulkan {
         std::vector<vk::raii::Buffer> _uniformBuffers;
         std::vector<vk::raii::DeviceMemory> _uniformBuffersMemory;
         std::vector<void*> _uniformBuffersMapped;
-
-        vk::raii::DescriptorPool _descriptorPool = nullptr;
-        std::vector<vk::raii::DescriptorSet> _descriptorSets;
 
         vk::raii::SwapchainKHR _swapchain = nullptr;
         vk::Format _swapchainImageFormat = vk::Format::eUndefined;
@@ -66,7 +67,12 @@ namespace tr::Rendering::Vulkan {
         vk::Format _depthFormat;
         vk::raii::Image _depthImage = nullptr;
         vk::raii::DeviceMemory _depthImageMemory = nullptr;
-        vk::raii::ImageView _depthImageView   = nullptr;
+        vk::raii::ImageView _depthImageView = nullptr;
+
+        vk::raii::Image _fallbackImage = nullptr;
+        vk::raii::DeviceMemory _fallbackImageMemory = nullptr;
+        vk::raii::ImageView _fallbackImageView = nullptr;
+        vk::raii::Sampler _fallbackSampler = nullptr;
 
         std::array<vk::raii::Semaphore, MAX_FRAMES_IN_FLIGHT> _imageAvailableSemaphores = {
             nullptr,
@@ -82,6 +88,7 @@ namespace tr::Rendering::Vulkan {
         };
 
         std::unordered_map<tr::Resources::Handle<tr::Data::Shader>, VulkanShader> _shadersMap;
+        std::unordered_map<tr::Resources::Handle<tr::Data::Texture>, VulkanTexture> _texturesMap;
         std::unordered_map<tr::Resources::Handle<tr::Data::Material>, VulkanMaterial> _materialsMap;
         std::unordered_map<tr::Resources::Handle<tr::Data::Mesh>, VulkanMesh> _meshesMap;
 
@@ -100,6 +107,7 @@ namespace tr::Rendering::Vulkan {
         void createImageViews();
 		void createDescriptorSetLayout();
         void createCommandPool();
+        void createFallbackTexture();
         void createColorResources();
         void createDepthResources();
         void createCommandBuffers();
@@ -110,6 +118,8 @@ namespace tr::Rendering::Vulkan {
         void cleanupSwapchain();
         void recreateSwapchain();
 
+        std::unique_ptr<vk::raii::CommandBuffer> beginSingleTimeCommands();
+        void endSingleTimeCommands(const vk::raii::CommandBuffer& commandBuffer) const;
         std::tuple<vk::raii::Image, vk::raii::DeviceMemory> createImage(
             uint32_t width, uint32_t height,
             vk::Format format,
@@ -130,6 +140,16 @@ namespace tr::Rendering::Vulkan {
             vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
             vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask,
             vk::ImageAspectFlags image_aspect_flags
+        );
+        void transitionImageLayout(
+            const vk::raii::Image& image,
+            const vk::ImageLayout oldLayout, const vk::ImageLayout newLayout,
+            uint32_t mipLevels
+        );
+        void copyBufferToImage(
+            const vk::raii::Buffer& buffer,
+            const vk::raii::Image& image,
+            uint32_t width, uint32_t height
         );
         std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(
             vk::DeviceSize size,

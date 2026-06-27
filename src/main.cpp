@@ -6,6 +6,9 @@
 #include <fmt/base.h>
 #include <glm/glm.hpp>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include "application.h"
 #include "window.h"
 #include "renderer.h"
@@ -31,9 +34,35 @@ namespace {
         return renderer.upload(std::move(shader));
     }
 
+    Handle<Texture> loadTexture(Renderer& renderer, const char* path) {
+        auto texture = std::make_unique<Data::Texture>();
+        int texWidth, texHeight, texChannels;
+        stbi_uc* raw = stbi_load(path, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+        if (!raw) {
+            throw std::runtime_error(std::string("Failed to load texture: ") + stbi_failure_reason());
+        }
+
+        uint32_t forcedChannelCount = 4; // STBI_rgb_alpha forced
+        texture->width = static_cast<uint32_t>(texWidth);
+        texture->height = static_cast<uint32_t>(texHeight);
+        texture->channels = forcedChannelCount;
+        texture->pixels.assign(raw, raw + texWidth * texHeight * forcedChannelCount);
+
+        stbi_image_free(raw);
+        
+        return renderer.upload(std::move(texture));
+    }
+
     Handle<Material> createMaterial(Renderer& renderer, Handle<Shader> shader) {
         auto material = std::make_unique<Data::Material>(shader);
         material->name = "base";
+        return renderer.upload(std::move(material));
+    }
+
+    Handle<Material> createMaterial(Renderer& renderer, Handle<Shader> shader, Handle<Texture> texture) {
+        auto material = std::make_unique<Data::Material>(shader);
+        material->name = "base";
+        material->textures.push_back(texture);
         return renderer.upload(std::move(material));
     }
 
@@ -119,7 +148,9 @@ namespace {
         renderer.clearState();
 
         Handle<Shader> baseShader = loadDefaultShader(renderer);
-        Handle<Material> defaultMaterial = createMaterial(renderer, baseShader);
+        Handle<Texture> texture = loadTexture(renderer, "../textures/texture.jpg");
+        Handle<Material> cubeMaterial = createMaterial(renderer, baseShader);
+        Handle<Material> floorMaterial = createMaterial(renderer, baseShader, texture);
         Handle<Mesh> cubeMesh = createCubeMesh(renderer);
         Handle<Mesh> planeMesh = createPlaneMesh(renderer);
 
@@ -128,7 +159,7 @@ namespace {
 
         auto cube1 = std::make_unique<GameObject>();
         cube1->mesh = cubeMesh;
-        cube1->materials.push_back(defaultMaterial);
+        cube1->materials.push_back(cubeMaterial);
         cube1->transform.position = glm::vec3(0.0f, 0.125f, 0.0f);
         cube1->transform.eulerAngles = glm::vec3(0.0f, 20.0f, 0.0f);
         cube1->transform.scale = glm::vec3(1.0f, 0.25f, 1.5f);
@@ -136,7 +167,7 @@ namespace {
 
         auto plane = std::make_unique<GameObject>();
         plane->mesh = planeMesh;
-        plane->materials.push_back(defaultMaterial);
+        plane->materials.push_back(floorMaterial);
         plane->transform.position = glm::vec3(0, 0, 0);
         plane->transform.eulerAngles = glm::vec3(0, 0, 0);
         plane->transform.scale = glm::vec3(5, 5, 5);

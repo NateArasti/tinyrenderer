@@ -9,6 +9,7 @@ struct PushConstants
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<UniformBuffer> ubo;
+[[vk::binding(0, 1)]] Sampler2D albedo;
 [[vk::push_constant]] PushConstants pcs;
 
 struct VSInput {
@@ -38,5 +39,5 @@ VSOutput vertMain(VSInput input) {
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
-    return vertIn.fragColor;
+    return albedo.Sample(vertIn.fragTexCoord) * vertIn.fragColor;
 }

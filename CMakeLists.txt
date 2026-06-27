@@ -25,6 +25,9 @@ target_link_libraries(tinyrenderer
 
 target_link_libraries(tinyrenderer PRIVATE rendering_vulkan)
 
+find_package(Stb REQUIRED)
+target_include_directories(tinyrenderer PRIVATE ${Stb_INCLUDE_DIR})
+
 find_package(fmt REQUIRED)
 target_link_libraries(tinyrenderer PRIVATE fmt::fmt)
 
