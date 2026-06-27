@@ -63,6 +63,11 @@ namespace tr::Rendering::Vulkan {
         vk::raii::DeviceMemory _colorImageMemory = nullptr;
         vk::raii::ImageView _colorImageView = nullptr;
 
+        vk::Format _depthFormat;
+        vk::raii::Image _depthImage = nullptr;
+        vk::raii::DeviceMemory _depthImageMemory = nullptr;
+        vk::raii::ImageView _depthImageView   = nullptr;
+
         std::array<vk::raii::Semaphore, MAX_FRAMES_IN_FLIGHT> _imageAvailableSemaphores = {
             nullptr,
             nullptr
@@ -95,6 +100,8 @@ namespace tr::Rendering::Vulkan {
         void createImageViews();
 		void createDescriptorSetLayout();
         void createCommandPool();
+        void createColorResources();
+        void createDepthResources();
         void createCommandBuffers();
         void createUniformBuffers();
         void createDescriptorPool();
@@ -103,21 +110,26 @@ namespace tr::Rendering::Vulkan {
         void cleanupSwapchain();
         void recreateSwapchain();
 
-        vk::SampleCountFlagBits getMaxSampleCount();
         std::tuple<vk::raii::Image, vk::raii::DeviceMemory> createImage(
             uint32_t width, uint32_t height,
             vk::Format format,
+            uint32_t mipLevels,
             vk::SampleCountFlagBits samples,
+            vk::ImageTiling tiling,
             vk::ImageUsageFlags usage,
             vk::MemoryPropertyFlags properties
         );
-        void createColorResources();
-
+        vk::raii::ImageView createImageView(
+            vk::Image const& image, 
+            vk::Format format, 
+            vk::ImageAspectFlags aspectFlags
+        );
         void transitionImageLayout(
             vk::Image image,
             vk::ImageLayout old_layout, vk::ImageLayout new_layout,
             vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
-            vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask
+            vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask,
+            vk::ImageAspectFlags image_aspect_flags
         );
         std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> createBuffer(
             vk::DeviceSize size,
@@ -126,6 +138,12 @@ namespace tr::Rendering::Vulkan {
         );
         void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size);
         uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties);
+        vk::Format findSupportedFormat(
+                const std::vector<vk::Format>& candidates,
+            vk::ImageTiling tiling,
+            vk::FormatFeatureFlags features
+        );
+        vk::SampleCountFlagBits getMaxSampleCount();
 
         void recordFrameStartCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex);
         void recordFrameEndCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex);

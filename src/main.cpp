@@ -126,14 +126,6 @@ namespace {
         auto scene = std::make_unique<Scene>();
         auto& objects = scene->getObjects();
 
-        auto plane = std::make_unique<GameObject>();
-        plane->mesh = planeMesh;
-        plane->materials.push_back(defaultMaterial);
-        plane->transform.position = glm::vec3(0, 0, 0);
-        plane->transform.eulerAngles = glm::vec3(0, 0, 0);
-        plane->transform.scale = glm::vec3(5, 5, 5);
-        objects.push_back(std::move(plane));
-
         auto cube1 = std::make_unique<GameObject>();
         cube1->mesh = cubeMesh;
         cube1->materials.push_back(defaultMaterial);
@@ -141,6 +133,14 @@ namespace {
         cube1->transform.eulerAngles = glm::vec3(0.0f, 20.0f, 0.0f);
         cube1->transform.scale = glm::vec3(1.0f, 0.25f, 1.5f);
         objects.push_back(std::move(cube1));
+
+        auto plane = std::make_unique<GameObject>();
+        plane->mesh = planeMesh;
+        plane->materials.push_back(defaultMaterial);
+        plane->transform.position = glm::vec3(0, 0, 0);
+        plane->transform.eulerAngles = glm::vec3(0, 0, 0);
+        plane->transform.scale = glm::vec3(5, 5, 5);
+        objects.push_back(std::move(plane));
 
         return scene;
     }
