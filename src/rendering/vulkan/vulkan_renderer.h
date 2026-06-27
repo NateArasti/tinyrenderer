@@ -132,7 +132,8 @@ namespace tr::Rendering::Vulkan {
         vk::raii::ImageView createImageView(
             vk::Image const& image, 
             vk::Format format, 
-            vk::ImageAspectFlags aspectFlags
+            vk::ImageAspectFlags aspectFlags,
+            uint32_t mipLevels
         );
         void transitionImageLayout(
             vk::Image image,
@@ -164,6 +165,12 @@ namespace tr::Rendering::Vulkan {
             vk::FormatFeatureFlags features
         );
         vk::SampleCountFlagBits getMaxSampleCount();
+        void generateMipmaps(
+            vk::raii::Image& image,
+            vk::Format imageFormat,
+            int32_t texWidth, int32_t texHeight,
+            uint32_t mipLevels
+        );
 
         void recordFrameStartCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex);
         void recordFrameEndCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex);

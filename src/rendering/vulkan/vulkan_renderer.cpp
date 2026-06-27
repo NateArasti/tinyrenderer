@@ -404,7 +404,7 @@ namespace tr::Rendering::Vulkan {
 
         for (auto image : _swapchainImages) {
             _swapchainImageViews.emplace_back(
-                createImageView(image, _swapchainImageFormat, vk::ImageAspectFlagBits::eColor)
+                createImageView(image, _swapchainImageFormat, vk::ImageAspectFlagBits::eColor, 1)
             );
         }
     }
@@ -454,7 +454,7 @@ namespace tr::Rendering::Vulkan {
             vk::ImageUsageFlagBits::eDepthStencilAttachment,
             vk::MemoryPropertyFlagBits::eDeviceLocal
         );
-        _depthImageView = createImageView(_depthImage, _depthFormat, vk::ImageAspectFlagBits::eDepth);
+        _depthImageView = createImageView(_depthImage, _depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
     }
 
     void VulkanRenderer::createFallbackTexture() {
@@ -496,7 +496,8 @@ namespace tr::Rendering::Vulkan {
         _fallbackImageView = createImageView(
             *_fallbackImage,
             vk::Format::eR8G8B8A8Srgb,
-            vk::ImageAspectFlagBits::eColor
+            vk::ImageAspectFlagBits::eColor,
+            1
         );
 
         _fallbackSampler = vk::raii::Sampler(
@@ -762,7 +763,8 @@ namespace tr::Rendering::Vulkan {
     vk::raii::ImageView VulkanRenderer::createImageView(
         vk::Image const& image,
         vk::Format format,
-        vk::ImageAspectFlags aspectFlags
+        vk::ImageAspectFlags aspectFlags,
+        uint32_t mipLevels
     ) {
         vk::ImageViewCreateInfo viewInfo{
 		    .image = image,
@@ -771,7 +773,7 @@ namespace tr::Rendering::Vulkan {
             .subresourceRange = {
                 .aspectMask = aspectFlags,
                 .baseMipLevel = 0,
-                .levelCount = 1,
+                .levelCount = mipLevels,
                 .baseArrayLayer = 0,
                 .layerCount = 1
             }
@@ -931,7 +933,99 @@ namespace tr::Rendering::Vulkan {
 		                         .imageExtent       = {width, height, 1}};
 		commandBuffer->copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, {region});
 		endSingleTimeCommands(*commandBuffer);
-	}
+    }
+
+    void VulkanRenderer::generateMipmaps(
+        vk::raii::Image& image,
+        vk::Format imageFormat,
+        int32_t texWidth, int32_t texHeight,
+        uint32_t mipLevels
+    ) {
+        vk::FormatProperties formatProperties = _physicalDevice.getFormatProperties(imageFormat);
+
+		if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear))
+		{
+			throw std::runtime_error("texture image format does not support linear blitting!");
+		}
+
+		std::unique_ptr<vk::raii::CommandBuffer> commandBuffer = beginSingleTimeCommands();
+
+		vk::ImageMemoryBarrier barrier          = {.srcAccessMask = vk::AccessFlagBits::eTransferWrite, .dstAccessMask = vk::AccessFlagBits::eTransferRead, .oldLayout = vk::ImageLayout::eTransferDstOptimal, .newLayout = vk::ImageLayout::eTransferSrcOptimal, .srcQueueFamilyIndex = vk::QueueFamilyIgnored, .dstQueueFamilyIndex = vk::QueueFamilyIgnored, .image = image};
+		barrier.subresourceRange.aspectMask     = vk::ImageAspectFlagBits::eColor;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount     = 1;
+		barrier.subresourceRange.levelCount     = 1;
+
+		int32_t mipWidth  = texWidth;
+		int32_t mipHeight = texHeight;
+
+		for (uint32_t i = 1; i < mipLevels; i++) {
+			barrier.subresourceRange.baseMipLevel = i - 1;
+			barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
+			barrier.newLayout = vk::ImageLayout::eTransferSrcOptimal;
+			barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+			barrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+
+			commandBuffer->pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, barrier);
+
+			vk::ArrayWrapper1D<vk::Offset3D, 2> offsets, dstOffsets;
+			offsets[0] = vk::Offset3D(0, 0, 0);
+			offsets[1] = vk::Offset3D(mipWidth, mipHeight, 1);
+			dstOffsets[0] = vk::Offset3D(0, 0, 0);
+            dstOffsets[1] = vk::Offset3D(
+                mipWidth > 1 ? mipWidth / 2 : 1,
+                mipHeight > 1 ? mipHeight / 2 : 1,
+                1
+            );
+            vk::ImageBlit blit = {
+                .srcSubresource = {},
+                .srcOffsets = offsets,
+                .dstSubresource = {},
+                .dstOffsets = dstOffsets
+            };
+            blit.srcSubresource = vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, i - 1, 0, 1);
+			blit.dstSubresource = vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor, i, 0, 1);
+
+            commandBuffer->blitImage(
+                image, vk::ImageLayout::eTransferSrcOptimal,
+                image, vk::ImageLayout::eTransferDstOptimal,
+                { blit },
+                vk::Filter::eLinear
+            );
+
+			barrier.oldLayout = vk::ImageLayout::eTransferSrcOptimal;
+			barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+			barrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+			barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+            commandBuffer->pipelineBarrier(
+                vk::PipelineStageFlagBits::eTransfer,
+                vk::PipelineStageFlagBits::eFragmentShader,
+                {}, {}, {},
+                barrier
+            );
+
+			if (mipWidth > 1)
+				mipWidth /= 2;
+			if (mipHeight > 1)
+				mipHeight /= 2;
+		}
+
+		barrier.subresourceRange.baseMipLevel = mipLevels - 1;
+		barrier.oldLayout = vk::ImageLayout::eTransferDstOptimal;
+		barrier.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+		barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+		barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
+        commandBuffer->pipelineBarrier(
+            vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eFragmentShader,
+            {}, {}, {},
+            barrier
+        );
+
+		endSingleTimeCommands(*commandBuffer);
+    }
 
 #pragma endregion
 
@@ -1107,41 +1201,46 @@ namespace tr::Rendering::Vulkan {
 		void *data = stagingBufferMemory.mapMemory(0, imageSize);
 		memcpy(data, texture.pixels.data(), imageSize);
         stagingBufferMemory.unmapMemory();
-
+        
         VulkanTexture result;
+
+        result.mipLevels = static_cast<uint32_t>(
+                std::floor(std::log2(std::max(texture.width, texture.height)))
+            ) + 1;
 
         std::tie(result.textureImage, result.textureImageMemory) = createImage(
             texture.width, texture.height,
             vk::Format::eR8G8B8A8Srgb,
-            1,
+            result.mipLevels,
             vk::SampleCountFlagBits::e1,
             vk::ImageTiling::eOptimal,
-            vk::ImageUsageFlagBits::eTransferSrc
-            | vk::ImageUsageFlagBits::eTransferDst
-            | vk::ImageUsageFlagBits::eSampled,
+            vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
             vk::MemoryPropertyFlagBits::eDeviceLocal
         );
 
         transitionImageLayout(
             result.textureImage,
             vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
-            1
+            result.mipLevels
         );
         copyBufferToImage(
             stagingBuffer,
             result.textureImage,
             static_cast<uint32_t>(texture.width), static_cast<uint32_t>(texture.height)
         );
-        transitionImageLayout(
+
+        generateMipmaps(
             result.textureImage,
-            vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
-            1
+            vk::Format::eR8G8B8A8Srgb,
+            texture.width, texture.height,
+            result.mipLevels
         );
 
         result.textureImageView = createImageView(
             result.textureImage,
             vk::Format::eR8G8B8A8Srgb,
-            vk::ImageAspectFlagBits::eColor
+            vk::ImageAspectFlagBits::eColor,
+            result.mipLevels
         );
         
         vk::PhysicalDeviceProperties properties = _physicalDevice.getProperties();
