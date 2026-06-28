@@ -45,6 +45,9 @@ namespace tr::Rendering {
     void Renderer::renderScene(const Camera& camera, const Scene& scene) {
         _renderingInterface->startFrame(camera);
 
+        auto cameraPosition = glm::vec3(camera.transform.getMatrix()[3]);
+        _transparentDrawQueue.clear();
+
         for (const auto& object : scene.getObjects()) {
             if (!object || !object->mesh.isValid()) {
                 continue;
@@ -55,6 +58,32 @@ namespace tr::Rendering {
                 .mesh = object->mesh,
                 .materials = std::span<const Handle<Material>>(object->materials)
             };
+
+            bool isOpaque = true;
+            for (const auto& materialHandle : object->materials) {
+                auto* material = _materialsPool.get(materialHandle);
+                if (!material) continue;
+                auto* shader = _shadersPool.get(material->shader);
+                if (shader && shader->blendMode == Data::BlendMode::Transparent) {
+                    isOpaque = false;
+                    break;
+                }
+            }
+            if (isOpaque) {
+                _renderingInterface->draw(command);
+            }
+            else {
+                glm::vec3 pos = glm::vec3(command.modelMatrix[3]);
+                float depth = glm::length(pos - cameraPosition);
+                _transparentDrawQueue.push_back({ command, depth });
+            }
+        }
+        std::sort(_transparentDrawQueue.begin(), _transparentDrawQueue.end(),
+            [](const auto& a, const auto& b) {
+                return a.second > b.second; // back to front
+            }
+        );
+        for (const auto& [command, depth] : _transparentDrawQueue) {
             _renderingInterface->draw(command);
         }
 

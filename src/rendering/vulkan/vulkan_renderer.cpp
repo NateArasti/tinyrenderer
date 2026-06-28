@@ -1085,28 +1085,50 @@ namespace tr::Rendering::Vulkan {
             .sampleShadingEnable = vk::False
         };
 
-		vk::PipelineColorBlendAttachmentState colorBlendAttachment{
-		    .blendEnable = vk::False,
-            .colorWriteMask =
-                  vk::ColorComponentFlagBits::eR
-                | vk::ColorComponentFlagBits::eG
-                | vk::ColorComponentFlagBits::eB
-                | vk::ColorComponentFlagBits::eA 
-        };
+        vk::PipelineColorBlendAttachmentState colorBlendAttachment;
+        vk::PipelineDepthStencilStateCreateInfo depthStencil;
+        if (shader.blendMode == Data::BlendMode::Transparent) {
+            colorBlendAttachment = {
+                .blendEnable = vk::True,
+                .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
+                .dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha,
+                .colorBlendOp = vk::BlendOp::eAdd,
+                .srcAlphaBlendFactor = vk::BlendFactor::eOne,
+                .dstAlphaBlendFactor = vk::BlendFactor::eZero,
+                .alphaBlendOp = vk::BlendOp::eAdd,
+                .colorWriteMask =
+                    vk::ColorComponentFlagBits::eR |
+                    vk::ColorComponentFlagBits::eG |
+                    vk::ColorComponentFlagBits::eB |
+                    vk::ColorComponentFlagBits::eA
+            };
+            depthStencil = {
+                .depthTestEnable = vk::True,
+                .depthWriteEnable = vk::False,
+                .depthCompareOp = vk::CompareOp::eLess,
+            };
+        }
+        else {
+            colorBlendAttachment = {
+                .blendEnable = vk::False,
+                .colorWriteMask =
+                    vk::ColorComponentFlagBits::eR |
+                    vk::ColorComponentFlagBits::eG |
+                    vk::ColorComponentFlagBits::eB |
+                    vk::ColorComponentFlagBits::eA
+            };
+            depthStencil = {
+                .depthTestEnable = vk::True,
+                .depthWriteEnable = vk::True,
+                .depthCompareOp = vk::CompareOp::eLess,
+            };
+        }
 
 		vk::PipelineColorBlendStateCreateInfo colorBlending{
             .logicOpEnable = vk::False,
             .logicOp = vk::LogicOp::eCopy, 
             .attachmentCount = 1, 
             .pAttachments = &colorBlendAttachment
-        };
-
-        vk::PipelineDepthStencilStateCreateInfo depthStencil{
-            .depthTestEnable = vk::True,
-            .depthWriteEnable = vk::True,
-            .depthCompareOp = vk::CompareOp::eLess,
-            .depthBoundsTestEnable = vk::False,
-            .stencilTestEnable = vk::False
         };
 
 		std::vector<vk::DynamicState> dynamicStates = {

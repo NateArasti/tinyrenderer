@@ -25,6 +25,8 @@ namespace tr::Data {
         ShaderParamValue defaultValue;
     };
 
+    enum class BlendMode { Opaque, Transparent };
+
     class Shader {
     private:
         const std::string _name;
@@ -35,6 +37,7 @@ namespace tr::Data {
     public:
         std::string vertName;
         std::string fragName;
+        BlendMode blendMode = BlendMode::Opaque;
         std::vector<ShaderParamDesc> params;
 
         Shader(std::string name, std::filesystem::path path)

@@ -44,6 +44,24 @@ namespace {
         return renderer.upload(std::move(shader));
     }
 
+    Handle<Shader> loadDefaultShaderTransparent(Renderer& renderer) {
+        auto shader = std::make_unique<Data::Shader>("base", "../shaders/base.spv");
+        shader->vertName = "vertMain";
+        shader->fragName = "fragMain";
+        shader->blendMode = BlendMode::Transparent;
+        shader->params = {
+            {
+                "color",
+                glm::vec4(1, 1, 1, 1)
+            },
+            {
+                "albedo",
+                Handle<Texture>{}
+            }
+        };
+        return renderer.upload(std::move(shader));
+    }
+
     Handle<Texture> loadTexture(Renderer& renderer, const char* path) {
         auto texture = std::make_unique<Data::Texture>();
         int texWidth, texHeight, texChannels;
@@ -66,7 +84,7 @@ namespace {
     Handle<Material> createCubeMaterial(Renderer& renderer, Handle<Shader> shader) {
         auto material = std::make_unique<Data::Material>(shader);
         material->name = "base";
-        material->set("color", glm::vec4(1, 1, 1, 1));
+        material->set("color", glm::vec4(1, 1, 1, 0.25f));
         return renderer.upload(std::move(material), shader);
     }
 
@@ -165,8 +183,9 @@ namespace {
         renderer.clearState();
 
         Handle<Shader> baseShader = loadDefaultShader(renderer);
+        Handle<Shader> baseShaderTransparent = loadDefaultShaderTransparent(renderer);
         Handle<Texture> texture = loadTexture(renderer, "../textures/texture.jpg");
-        Handle<Material> cubeMaterial = createCubeMaterial(renderer, baseShader);
+        Handle<Material> cubeMaterial = createCubeMaterial(renderer, baseShaderTransparent);
         Handle<Material> floorMaterial = createPlaneMaterial(renderer, baseShader, texture);
         Handle<Mesh> cubeMesh = createCubeMesh(renderer);
         Handle<Mesh> planeMesh = createPlaneMesh(renderer);

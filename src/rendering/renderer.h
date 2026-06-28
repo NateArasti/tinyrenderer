@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vector>
 #include <memory>
 
 #include "rhi.h"
@@ -15,6 +16,7 @@ namespace tr::Rendering {
     class Renderer {
     private:
         Rendering::RHI* _renderingInterface;
+        std::vector<std::pair<DrawCommand, float>> _transparentDrawQueue;
         
         tr::Resources::Pool<tr::Data::Shader> _shadersPool;
         tr::Resources::Pool<tr::Data::Texture> _texturesPool;
