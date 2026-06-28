@@ -554,7 +554,7 @@ namespace tr::Rendering::Vulkan {
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+			vk::DeviceSize bufferSize = sizeof(CameraData);
 			auto [buffer, bufferMem]  = createBuffer(
                 bufferSize,
                 vk::BufferUsageFlagBits::eUniformBuffer,
@@ -595,7 +595,7 @@ namespace tr::Rendering::Vulkan {
             vk::DescriptorBufferInfo bufferInfo{
                 .buffer = _uniformBuffers[i],
                 .offset = 0,
-                .range = sizeof(UniformBufferObject)
+                .range = sizeof(CameraData)
             };
             vk::WriteDescriptorSet descriptorWrite{
                 .dstSet = _descriptorSets[i],
@@ -1125,16 +1125,22 @@ namespace tr::Rendering::Vulkan {
         };
 
         std::vector<vk::DescriptorSetLayoutBinding> shaderBindings;
-        uint32_t texturesCount = 1;
-        for (uint32_t i = 0; i < texturesCount; ++i) {
-            shaderBindings.push_back(
-                vk::DescriptorSetLayoutBinding{
-                    .binding = i,
+        shaderBindings.push_back(vk::DescriptorSetLayoutBinding{
+            .binding = 0,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .descriptorCount = 1,
+            .stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment
+        });
+        uint32_t textureBinding = 1;
+        for (const auto& param : shader.params) {
+            if (shader.isTextureParam(param.defaultValue)) {
+                shaderBindings.push_back(vk::DescriptorSetLayoutBinding{
+                    .binding = textureBinding++,
                     .descriptorType = vk::DescriptorType::eCombinedImageSampler,
                     .descriptorCount = 1,
                     .stageFlags = vk::ShaderStageFlagBits::eFragment
-                }
-            );
+                });
+            }
         }
         vk::raii::DescriptorSetLayout shaderDescriptorSetLayout(
             _device,
@@ -1265,32 +1271,79 @@ namespace tr::Rendering::Vulkan {
     
     void VulkanRenderer::createMaterial(
         tr::Resources::Handle<tr::Data::Material> handle,
-        const tr::Data::Material& material
+        const tr::Data::Material& material,
+        const tr::Data::Shader& shader
     ) {
-        VulkanMaterial result;
+        VulkanMaterial result{
+            .source = handle,
+            .shader = material.shader,
+        };
+        auto& vulkanShader = _shadersMap[result.shader];
 
-        result.source = handle;
-        result.shader = material.shader;
+        std::vector<uint8_t> uboData;
+        for (const auto& desc : shader.params) {
+            const auto& value = material.get(desc.name, shader);
+            auto info = shader.getParamTypeInfo(value);
+            if (info.size == 0) continue;
 
-        uint32_t textureCount = 1; // from shader
+            uint32_t offset = (static_cast<uint32_t>(uboData.size()) + info.alignment - 1) & ~(info.alignment - 1);
+            uboData.resize(offset + info.size);
+            std::visit([&](auto&& val) {
+                using T = std::decay_t<decltype(val)>;
+                if constexpr (!std::is_same_v<T, Resources::Handle<Data::Texture>>) {
+                    memcpy(uboData.data() + offset, &val, sizeof(val));
+                }
+            }, value);
+        }
+        if (uboData.empty()) uboData.resize(4, 0);
 
-        std::vector<vk::DescriptorImageInfo> imageInfos;
-        imageInfos.reserve(textureCount);
-        std::vector<vk::WriteDescriptorSet> writes;
-        writes.reserve(textureCount);
-
-        auto& shader = _shadersMap[result.shader];
+        vk::DeviceSize uboSize = uboData.size();
+        auto [stagingBuffer, stagingMemory] = createBuffer(
+            uboSize,
+            vk::BufferUsageFlagBits::eTransferSrc,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+        );
+        void* mapped = stagingMemory.mapMemory(0, uboSize);
+        memcpy(mapped, uboData.data(), uboSize);
+        stagingMemory.unmapMemory();
+        std::tie(result.paramsBuffer, result.paramsMemory) = createBuffer(
+            uboSize,
+            vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst,
+            vk::MemoryPropertyFlagBits::eDeviceLocal
+        );
+        copyBuffer(stagingBuffer, result.paramsBuffer, uboSize);
+        
         result.descriptorSet = std::move(_device.allocateDescriptorSets(
             vk::DescriptorSetAllocateInfo {
                 .descriptorPool = _descriptorPool,
                 .descriptorSetCount = 1,
-                .pSetLayouts = &*shader.descriptorSetLayout
+                .pSetLayouts = &*vulkanShader.descriptorSetLayout
             }
         ).front());
-        for (uint32_t i = 0; i < textureCount; ++i) {
-            bool hasTexture = i < material.textures.size() && material.textures[i].isValid();
-            if (hasTexture) {
-                auto& tex = _texturesMap[material.textures[i]];
+
+        std::vector<vk::DescriptorImageInfo> imageInfos;
+        std::vector<vk::WriteDescriptorSet> writes;
+
+        vk::DescriptorBufferInfo bufferInfo{
+            .buffer = *result.paramsBuffer,
+            .offset = 0,
+            .range = uboSize
+        };
+        writes.push_back(vk::WriteDescriptorSet{
+            .dstSet = *result.descriptorSet,
+            .dstBinding = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo = &bufferInfo
+        });
+
+        uint32_t textureBinding = 1;
+        for (const auto& desc : shader.params) {
+            const auto& value = material.get(desc.name, shader);
+            if (!shader.isTextureParam(value)) continue;
+            auto texHandle = std::get<Resources::Handle<Data::Texture>>(value);
+            if (texHandle.isValid()) {
+                auto& tex = _texturesMap[texHandle];
                 imageInfos.push_back({
                     .sampler = *tex.textureSampler,
                     .imageView = *tex.textureImageView,
@@ -1304,10 +1357,10 @@ namespace tr::Rendering::Vulkan {
                     .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
                 });
             }
+
             writes.push_back(vk::WriteDescriptorSet{
                 .dstSet = *result.descriptorSet,
-                .dstBinding = i,
-                .dstArrayElement = 0,
+                .dstBinding = textureBinding++,
                 .descriptorCount = 1,
                 .descriptorType = vk::DescriptorType::eCombinedImageSampler,
                 .pImageInfo = &imageInfos.back()
@@ -1489,8 +1542,8 @@ namespace tr::Rendering::Vulkan {
             recreateSwapchain();
             return;
         }
-        
-        UniformBufferObject ubo{
+
+        CameraData ubo{
             .view = glm::inverse(camera.transform.getMatrix()),
             .proj = glm::perspective(
                 glm::radians(camera.fov),

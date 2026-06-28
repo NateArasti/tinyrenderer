@@ -39,7 +39,8 @@ namespace tr::Rendering {
             const tr::Data::Texture& texture) = 0;
         virtual void createMaterial(
             tr::Resources::Handle<tr::Data::Material> handle,
-            const tr::Data::Material& material) = 0;
+            const tr::Data::Material& material,
+            const tr::Data::Shader& shader) = 0;
         virtual void createMesh(
             tr::Resources::Handle<tr::Data::Mesh> handle,
             const tr::Data::Mesh& mesh) = 0;

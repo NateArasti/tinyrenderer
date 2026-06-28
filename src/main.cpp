@@ -31,6 +31,16 @@ namespace {
         auto shader = std::make_unique<Data::Shader>("base", "../shaders/base.spv");
         shader->vertName = "vertMain";
         shader->fragName = "fragMain";
+        shader->params = {
+            {
+                "color",
+                glm::vec4(1, 1, 1, 1)
+            },
+            {
+                "albedo",
+                Handle<Texture>{}
+            }
+        };
         return renderer.upload(std::move(shader));
     }
 
@@ -53,17 +63,24 @@ namespace {
         return renderer.upload(std::move(texture));
     }
 
-    Handle<Material> createMaterial(Renderer& renderer, Handle<Shader> shader) {
+    Handle<Material> createCubeMaterial(Renderer& renderer, Handle<Shader> shader) {
         auto material = std::make_unique<Data::Material>(shader);
         material->name = "base";
-        return renderer.upload(std::move(material));
+        material->set("color", glm::vec4(1, 1, 1, 1));
+        return renderer.upload(std::move(material), shader);
     }
 
-    Handle<Material> createMaterial(Renderer& renderer, Handle<Shader> shader, Handle<Texture> texture) {
+    Handle<Material> createPlaneMaterial(
+        Renderer& renderer,
+        Handle<Shader> shader,
+        Handle<Texture> texture
+    ) {
         auto material = std::make_unique<Data::Material>(shader);
         material->name = "base";
-        material->textures.push_back(texture);
-        return renderer.upload(std::move(material));
+        material->
+            set("albedo", texture)
+            .set("color", glm::vec4(0.2f, 0.2f, 0.2f, 1));
+        return renderer.upload(std::move(material), shader);
     }
 
     Handle<Mesh> createCubeMesh(Renderer& renderer) {
@@ -124,10 +141,10 @@ namespace {
     Handle<Mesh> createPlaneMesh(Renderer& renderer) {
         auto mesh = std::make_unique<Data::Mesh>();
         mesh->vertices = {
-            {.position = {-0.5f, 0, -0.5f}, .normal = {0, 1, 0}, .uv = {0, 0}, .color = {0.1f, 0.1f, 0.1f, 1} },
-            {.position = { 0.5f, 0, -0.5f}, .normal = {0, 1, 0}, .uv = {1, 0}, .color = {0.1f, 0.1f, 0.1f, 1} },
-            {.position = {-0.5f, 0,  0.5f}, .normal = {0, 1, 0}, .uv = {0, 1}, .color = {0.1f, 0.1f, 0.1f, 1} },
-            {.position = { 0.5f, 0,  0.5f}, .normal = {0, 1, 0}, .uv = {1, 1}, .color = {0.1f, 0.1f, 0.1f, 1} },
+            {.position = {-0.5f, 0, -0.5f}, .normal = {0, 1, 0}, .uv = {0, 0}, .color = {1, 1, 1, 1} },
+            {.position = { 0.5f, 0, -0.5f}, .normal = {0, 1, 0}, .uv = {1, 0}, .color = {1, 1, 1, 1} },
+            {.position = {-0.5f, 0,  0.5f}, .normal = {0, 1, 0}, .uv = {0, 1}, .color = {1, 1, 1, 1} },
+            {.position = { 0.5f, 0,  0.5f}, .normal = {0, 1, 0}, .uv = {1, 1}, .color = {1, 1, 1, 1} },
         };
         
         mesh->indices.push_back(0);
@@ -149,8 +166,8 @@ namespace {
 
         Handle<Shader> baseShader = loadDefaultShader(renderer);
         Handle<Texture> texture = loadTexture(renderer, "../textures/texture.jpg");
-        Handle<Material> cubeMaterial = createMaterial(renderer, baseShader);
-        Handle<Material> floorMaterial = createMaterial(renderer, baseShader, texture);
+        Handle<Material> cubeMaterial = createCubeMaterial(renderer, baseShader);
+        Handle<Material> floorMaterial = createPlaneMaterial(renderer, baseShader, texture);
         Handle<Mesh> cubeMesh = createCubeMesh(renderer);
         Handle<Mesh> planeMesh = createPlaneMesh(renderer);
 

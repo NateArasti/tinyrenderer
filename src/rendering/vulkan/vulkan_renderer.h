@@ -195,7 +195,8 @@ namespace tr::Rendering::Vulkan {
             const tr::Data::Texture& texture) override;
         void createMaterial(
             tr::Resources::Handle<tr::Data::Material> handle,
-            const tr::Data::Material& material) override;
+            const tr::Data::Material& material,
+            const tr::Data::Shader& shader) override;
         void createMesh(
             tr::Resources::Handle<tr::Data::Mesh> handle,
             const tr::Data::Mesh& mesh) override;

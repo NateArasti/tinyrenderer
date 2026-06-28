@@ -1,10 +1,7 @@
 #pragma once
 
 #include <string>
-#include <variant>
-#include <vector>
-
-#include <glm/glm.hpp>
+#include <unordered_map>
 
 #include "handle.h"
 #include "shader.h"
@@ -14,8 +11,26 @@ namespace tr::Data {
     struct Material {
         std::string name;
         Resources::Handle<Data::Shader> shader;
-        std::vector<Resources::Handle<Data::Texture>> textures;
-        
+        std::unordered_map<std::string, ShaderParamValue> params;
+
         explicit Material(Resources::Handle<Data::Shader> shader) : shader(shader) {}
+
+        Material& set(const std::string& paramName, ShaderParamValue value) {
+            params[paramName] = std::move(value);
+            return *this;
+        }
+
+        const ShaderParamValue& get(const std::string& paramName, const Shader& shaderDef) const {
+            auto it = params.find(paramName);
+            if (it != params.end()) {
+                return it->second;
+            }
+            for (const auto& desc : shaderDef.params) {
+                if (desc.name == paramName) {
+                    return desc.defaultValue;
+                }
+            }
+            throw std::runtime_error("Unknown shader param: " + paramName);
+        }
     };
 }

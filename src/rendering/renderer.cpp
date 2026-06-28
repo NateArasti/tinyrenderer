@@ -30,9 +30,9 @@ namespace tr::Rendering {
         return handle;
     }
 
-    Handle<Material> Renderer::upload(std::unique_ptr<Material> material) {
+    Handle<Material> Renderer::upload(std::unique_ptr<Material> material, Handle<Shader> shader) {
         auto handle = _materialsPool.add(std::move(material));
-        _renderingInterface->createMaterial(handle, *_materialsPool.get(handle));
+        _renderingInterface->createMaterial(handle, *_materialsPool.get(handle), *_shadersPool.get(shader));
         return handle;
     }
 

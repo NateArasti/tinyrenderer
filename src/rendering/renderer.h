@@ -33,7 +33,10 @@ namespace tr::Rendering {
         void clearState();
         tr::Resources::Handle<tr::Data::Shader> upload(std::unique_ptr<tr::Data::Shader> shader);
         tr::Resources::Handle<tr::Data::Texture> upload(std::unique_ptr<tr::Data::Texture> texture);
-        tr::Resources::Handle<tr::Data::Material> upload(std::unique_ptr<tr::Data::Material> material);
+        tr::Resources::Handle<Data::Material> upload(
+            std::unique_ptr<tr::Data::Material> material,
+            tr::Resources::Handle<tr::Data::Shader> shader
+        );
         tr::Resources::Handle<tr::Data::Mesh> upload(std::unique_ptr<tr::Data::Mesh> mesh);
         void renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene);
     };
