@@ -21,6 +21,12 @@ namespace tr::Resources {
         std::vector<uint32_t> _freeList;
 
     public:
+        Pool() = default;
+        Pool(const Pool&) = delete;
+        Pool& operator=(const Pool&) = delete;
+        Pool(Pool&&) = default;
+        Pool& operator=(Pool&&) = default;
+
         bool isValid(Handle<T> handle) const noexcept {
             return handle.isValid()
                 && handle.index < _slots.size()
@@ -68,5 +74,50 @@ namespace tr::Resources {
                 _freeList.push_back(i);
             }
         }
+
+        struct Iterator {
+            using iterator_category = std::forward_iterator_tag;
+            using value_type = std::pair<Handle<T>, T*>;
+            using difference_type = std::ptrdiff_t;
+            using pointer = value_type*;
+            using reference = value_type;
+
+            explicit Iterator(std::vector<Slot>* slots, size_t index)
+                : _slots(slots), _index(index) {
+                advance();
+            }
+
+            value_type operator*() const {
+                auto& slot = (*_slots)[_index];
+                return {{static_cast<uint32_t>(_index), slot.generation}, slot.value.get()};
+            }
+
+            Iterator& operator++() {
+                ++_index;
+                advance();
+                return *this;
+            }
+
+            Iterator operator++(int) {
+                auto tmp = *this;
+                ++(*this);
+                return tmp;
+            }
+
+            bool operator==(const Iterator& other) const { return _index == other._index; }
+            bool operator!=(const Iterator& other) const { return _index != other._index; }
+
+        private:
+            void advance() {
+                while (_index < _slots->size() && !(*_slots)[_index].alive)
+                    ++_index;
+            }
+
+            std::vector<Slot>* _slots;
+            size_t _index;
+        };
+
+        Iterator begin() { return Iterator(&_slots, 0); }
+        Iterator end() { return Iterator(&_slots, _slots.size()); }
     };
 }

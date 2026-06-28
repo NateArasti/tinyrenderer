@@ -27,8 +27,8 @@ using namespace tr::Data;
 using namespace tr::Rendering;
 
 namespace {
-    Handle<Shader> loadDefaultShader(Renderer& renderer) {
-        auto shader = std::make_unique<Data::Shader>("base", "../shaders/base.spv");
+    Handle<Shader> loadDefaultShader(ResourceManager& resourceManager) {
+        auto shader = std::make_unique<Shader>("base", "../shaders/base.spv");
         shader->vertName = "vertMain";
         shader->fragName = "fragMain";
         shader->params = {
@@ -41,11 +41,11 @@ namespace {
                 Handle<Texture>{}
             }
         };
-        return renderer.upload(std::move(shader));
+        return resourceManager.shadersPool.add(std::move(shader));
     }
 
-    Handle<Shader> loadDefaultShaderTransparent(Renderer& renderer) {
-        auto shader = std::make_unique<Data::Shader>("base", "../shaders/base.spv");
+    Handle<Shader> loadDefaultShaderTransparent(ResourceManager& resourceManager) {
+        auto shader = std::make_unique<Shader>("base", "../shaders/base.spv");
         shader->vertName = "vertMain";
         shader->fragName = "fragMain";
         shader->blendMode = BlendMode::Transparent;
@@ -59,11 +59,11 @@ namespace {
                 Handle<Texture>{}
             }
         };
-        return renderer.upload(std::move(shader));
+        return resourceManager.shadersPool.add(std::move(shader));
     }
 
-    Handle<Texture> loadTexture(Renderer& renderer, const char* path) {
-        auto texture = std::make_unique<Data::Texture>();
+    Handle<Texture> loadTexture(ResourceManager& resourceManager, const char* path) {
+        auto texture = std::make_unique<Texture>();
         int texWidth, texHeight, texChannels;
         stbi_uc* raw = stbi_load(path, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         if (!raw) {
@@ -78,31 +78,31 @@ namespace {
 
         stbi_image_free(raw);
         
-        return renderer.upload(std::move(texture));
+        return resourceManager.texturesPool.add(std::move(texture));
     }
 
-    Handle<Material> createCubeMaterial(Renderer& renderer, Handle<Shader> shader) {
-        auto material = std::make_unique<Data::Material>(shader);
+    Handle<Material> createCubeMaterial(ResourceManager& resourceManager, Handle<Shader> shader) {
+        auto material = std::make_unique<Material>(shader);
         material->name = "base";
         material->set("color", glm::vec4(1, 1, 1, 0.25f));
-        return renderer.upload(std::move(material), shader);
+        return resourceManager.materialsPool.add(std::move(material));
     }
 
     Handle<Material> createPlaneMaterial(
-        Renderer& renderer,
+        ResourceManager& resourceManager,
         Handle<Shader> shader,
         Handle<Texture> texture
     ) {
-        auto material = std::make_unique<Data::Material>(shader);
+        auto material = std::make_unique<Material>(shader);
         material->name = "base";
         material->
             set("albedo", texture)
             .set("color", glm::vec4(0.2f, 0.2f, 0.2f, 1));
-        return renderer.upload(std::move(material), shader);
+        return resourceManager.materialsPool.add(std::move(material));
     }
 
-    Handle<Mesh> createCubeMesh(Renderer& renderer) {
-        auto mesh = std::make_unique<Data::Mesh>();
+    Handle<Mesh> createCubeMesh(ResourceManager& resourceManager) {
+        auto mesh = std::make_unique<Mesh>();
 
         mesh->vertices = {
             // Bottom Face
@@ -153,10 +153,10 @@ namespace {
 
         mesh->subMeshData.push_back(36);
 
-        return renderer.upload(std::move(mesh));
+        return resourceManager.meshesPool.add(std::move(mesh));
     }
 
-    Handle<Mesh> createPlaneMesh(Renderer& renderer) {
+    Handle<Mesh> createPlaneMesh(ResourceManager& resourceManager) {
         auto mesh = std::make_unique<Data::Mesh>();
         mesh->vertices = {
             {.position = {-0.5f, 0, -0.5f}, .normal = {0, 1, 0}, .uv = {0, 0}, .color = {1, 1, 1, 1} },
@@ -174,21 +174,19 @@ namespace {
 
         mesh->subMeshData.push_back(6);
 
-        return renderer.upload(std::move(mesh));
+        return resourceManager.meshesPool.add(std::move(mesh));
     }
 
-    std::unique_ptr<Scene> createDefaultScene(Renderer& renderer) {
+    std::unique_ptr<Scene> createDefaultScene(ResourceManager& resourceManager) {
         fmt::println("Switching to default scene");
 
-        renderer.clearState();
-
-        Handle<Shader> baseShader = loadDefaultShader(renderer);
-        Handle<Shader> baseShaderTransparent = loadDefaultShaderTransparent(renderer);
-        Handle<Texture> texture = loadTexture(renderer, "../textures/texture.jpg");
-        Handle<Material> cubeMaterial = createCubeMaterial(renderer, baseShaderTransparent);
-        Handle<Material> floorMaterial = createPlaneMaterial(renderer, baseShader, texture);
-        Handle<Mesh> cubeMesh = createCubeMesh(renderer);
-        Handle<Mesh> planeMesh = createPlaneMesh(renderer);
+        Handle<Shader> baseShader = loadDefaultShader(resourceManager);
+        Handle<Shader> baseShaderTransparent = loadDefaultShaderTransparent(resourceManager);
+        Handle<Texture> texture = loadTexture(resourceManager, "../textures/texture.jpg");
+        Handle<Material> cubeMaterial = createCubeMaterial(resourceManager, baseShaderTransparent);
+        Handle<Material> floorMaterial = createPlaneMaterial(resourceManager, baseShader, texture);
+        Handle<Mesh> cubeMesh = createCubeMesh(resourceManager);
+        Handle<Mesh> planeMesh = createPlaneMesh(resourceManager);
 
         auto scene = std::make_unique<Scene>();
         auto& objects = scene->getObjects();
@@ -223,8 +221,9 @@ int main() {
 
     fmt::println("Starting {} with ({}, {}) window. Version={}.", application.name, window->width(), window->height(), application.version);
     
+    auto resourceManager = std::make_unique<ResourceManager>();
     auto rhi = std::make_unique<Vulkan::VulkanRenderer>(application);
-    auto renderer = std::make_unique<Renderer>(*rhi);
+    auto renderer = std::make_unique<Renderer>(rhi.get(), resourceManager.get());
     auto camera = std::make_unique<Camera>();
     camera->transform.position = glm::vec3(-4, 4, 4);
     camera->transform.eulerAngles = glm::vec3(-45.0f, -45.0f, 0.0f);
@@ -232,7 +231,9 @@ int main() {
     camera->near = 0.1f;
     camera->far = 50;
 
-    auto scene = createDefaultScene(*renderer);
+    resourceManager->clear();
+    auto scene = createDefaultScene(*resourceManager);
+    renderer->reloadResources();
 
     while (!window->shouldClose()) {
         window->pollEvents();
