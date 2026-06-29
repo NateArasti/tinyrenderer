@@ -34,6 +34,7 @@ namespace {
         auto shader = std::make_unique<Shader>("base", "../shaders/base.spv");
         shader->vertName = "vertMain";
         shader->fragName = "fragMain";
+        shader->cullMode = CullMode::None;
         shader->params = {
             {
                 "color",
@@ -197,7 +198,7 @@ namespace {
         auto cube1 = std::make_unique<GameObject>();
         cube1->mesh = cubeMesh;
         cube1->materials.push_back(cubeMaterial);
-        cube1->transform.position = glm::vec3(0.0f, 0.125f, 0.0f);
+        cube1->transform.position = glm::vec3(0.0f, 0.1251f, 0.0f);
         cube1->transform.eulerAngles = glm::vec3(0.0f, 20.0f, 0.0f);
         cube1->transform.scale = glm::vec3(1.0f, 0.25f, 1.5f);
         objects.push_back(std::move(cube1));

@@ -26,6 +26,7 @@ namespace tr::Data {
     };
 
     enum class BlendMode { Opaque, Transparent };
+    enum class CullMode { None, Front, Back, Both };
 
     class Shader {
     private:
@@ -37,8 +38,10 @@ namespace tr::Data {
     public:
         std::string vertName;
         std::string fragName;
-        BlendMode blendMode = BlendMode::Opaque;
         std::vector<ShaderParamDesc> params;
+
+        BlendMode blendMode = BlendMode::Opaque;
+        CullMode cullMode = CullMode::Back;
 
         Shader(std::string name, std::filesystem::path path)
             : _name(name), _shaderPath(path) {

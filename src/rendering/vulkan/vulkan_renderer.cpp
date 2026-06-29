@@ -1074,11 +1074,29 @@ namespace tr::Rendering::Vulkan {
             .depthClampEnable = vk::False,
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
-            .cullMode = vk::CullModeFlagBits::eBack,
             .frontFace = vk::FrontFace::eClockwise,
             .depthBiasEnable = vk::False,
             .lineWidth = 1.0f
         };
+        switch (shader.cullMode)
+        {
+        case tr::Data::CullMode::None:
+            rasterizer.cullMode = vk::CullModeFlagBits::eNone;
+            break;
+        case tr::Data::CullMode::Front:
+            rasterizer.cullMode = vk::CullModeFlagBits::eFront;
+            break;
+        case tr::Data::CullMode::Back:
+            rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+            break;
+        case tr::Data::CullMode::Both:
+            rasterizer.cullMode = vk::CullModeFlagBits::eFrontAndBack;
+            break;
+        
+        default:
+            rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+            break;
+        }
 
 		vk::PipelineMultisampleStateCreateInfo multisampling{
             .rasterizationSamples = _msaaSamples, 
