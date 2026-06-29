@@ -16,6 +16,8 @@
 #include "camera.h"
 #include "handle.h"
 
+#include "orbit_controller.h"
+#include "free_move_controller.h"
 #include "vulkan_renderer.h"
 
 constexpr std::string_view APP_NAME = "tinyrenderer";
@@ -25,6 +27,7 @@ using namespace tr::App;
 using namespace tr::Resources;
 using namespace tr::Data;
 using namespace tr::Rendering;
+using namespace tr::Controllers;
 
 namespace {
     Handle<Shader> loadDefaultShader(ResourceManager& resourceManager) {
@@ -235,8 +238,11 @@ int main() {
     auto scene = createDefaultScene(*resourceManager);
     renderer->reloadResources();
 
+    std::unique_ptr<CameraController> cameraController = std::make_unique<FreeMoveController>(*camera);
+
     while (!window->shouldClose()) {
         window->pollEvents();
+        cameraController->update(*camera, *window);
 
         if (window->wasResized()) {
             rhi->resize(window->width(), window->height());

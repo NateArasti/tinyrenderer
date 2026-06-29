@@ -14,6 +14,7 @@ add_subdirectory(src/app)
 add_subdirectory(src/resources)
 add_subdirectory(src/data)
 add_subdirectory(src/rendering)
+add_subdirectory(src/controllers)
 
 target_link_libraries(tinyrenderer 
     PRIVATE 
@@ -21,6 +22,7 @@ target_link_libraries(tinyrenderer
         resources
         data
         rendering
+        controllers
 )
 
 target_link_libraries(tinyrenderer PRIVATE rendering_vulkan)
