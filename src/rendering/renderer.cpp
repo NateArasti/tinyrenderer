@@ -1,8 +1,13 @@
 #include "renderer.h"
 
+#include <glm/glm.hpp>
+
+#include "window.h"
+#include "scene_data.h"
+
 namespace tr::Rendering {
-    Renderer::Renderer(RHI* rhi, tr::Data::ResourceManager* resourceManager)
-        : _renderingInterface(rhi), _resourceManager(resourceManager)
+    Renderer::Renderer(RHI* rhi, tr::Data::ResourceManager* resourceManager, tr::App::Window* window)
+        : _renderingInterface(rhi), _resourceManager(resourceManager), _window(window)
     {
     }
 
@@ -28,7 +33,18 @@ namespace tr::Rendering {
     }
 
     void Renderer::renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene) {
-        _renderingInterface->startFrame(camera);
+        SceneData sceneData{
+            .view = glm::inverse(camera.transform.getMatrix()),
+            .proj = glm::perspective(
+                glm::radians(camera.fov),
+                static_cast<float>(_window->width()) / static_cast<float>(_window->height()),
+                camera.near, camera.far),
+            .lightDirection = scene.directionalLight.direction,
+            .lightIntensity = scene.directionalLight.intensity,
+            .lightColor = scene.directionalLight.color,
+            .cameraPos = camera.transform.position,
+        };
+        _renderingInterface->startFrame(sceneData);
 
         auto cameraPosition = glm::vec3(camera.transform.getMatrix()[3]);
         _transparentDrawQueue.clear();

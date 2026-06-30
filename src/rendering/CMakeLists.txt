@@ -12,7 +12,8 @@ target_include_directories(rendering PUBLIC
 )
 
 target_link_libraries(rendering
-    PUBLIC
+    PRIVATE
+        app
         resources
         data
 )

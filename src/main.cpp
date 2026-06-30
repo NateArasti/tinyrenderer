@@ -31,32 +31,30 @@ using namespace tr::Controllers;
 
 namespace {
     Handle<Shader> loadDefaultShader(ResourceManager& resourceManager) {
-        auto shader = std::make_unique<Shader>("base", "../shaders/base.spv");
+        auto shader = std::make_unique<Shader>("base", "../shaders/pbr.spv");
         shader->vertName = "vertMain";
         shader->fragName = "fragMain";
         shader->cullMode = CullMode::None;
         shader->params = {
             {
-                "color",
-                glm::vec4(1, 1, 1, 1)
+                "diffuseColor",
+                glm::vec4(1)
             },
             {
-                "albedo",
-                Handle<Texture>{}
-            }
-        };
-        return resourceManager.shadersPool.add(std::move(shader));
-    }
-
-    Handle<Shader> loadDefaultShaderTransparent(ResourceManager& resourceManager) {
-        auto shader = std::make_unique<Shader>("base", "../shaders/base.spv");
-        shader->vertName = "vertMain";
-        shader->fragName = "fragMain";
-        shader->blendMode = BlendMode::Transparent;
-        shader->params = {
+                "ambientColor",
+                glm::vec4(0.03f, 0.03f, 0.03f, 1.0f)
+            },
             {
-                "color",
-                glm::vec4(1, 1, 1, 1)
+                "specularColor",
+                glm::vec4(0.5)
+            },
+            {
+                "metallicFactor",
+                0.0f
+            },
+            {
+                "roughnessFactor",
+                1.0f
             },
             {
                 "albedo",
@@ -88,7 +86,7 @@ namespace {
     Handle<Material> createCubeMaterial(ResourceManager& resourceManager, Handle<Shader> shader) {
         auto material = std::make_unique<Material>(shader);
         material->name = "base";
-        material->set("color", glm::vec4(1, 1, 1, 0.25f));
+        material->set("diffuseColor", glm::vec4(1, 1, 1, 1));
         return resourceManager.materialsPool.add(std::move(material));
     }
 
@@ -101,7 +99,8 @@ namespace {
         material->name = "base";
         material->
             set("albedo", texture)
-            .set("color", glm::vec4(0.2f, 0.2f, 0.2f, 1));
+            .set("metallicFactor", 0.5f)
+            .set("roughnessFactor", 0.5f);
         return resourceManager.materialsPool.add(std::move(material));
     }
 
@@ -185,20 +184,25 @@ namespace {
         fmt::println("Switching to default scene");
 
         Handle<Shader> baseShader = loadDefaultShader(resourceManager);
-        Handle<Shader> baseShaderTransparent = loadDefaultShaderTransparent(resourceManager);
         Handle<Texture> texture = loadTexture(resourceManager, "../textures/texture.jpg");
-        Handle<Material> cubeMaterial = createCubeMaterial(resourceManager, baseShaderTransparent);
+        Handle<Material> cubeMaterial = createCubeMaterial(resourceManager, baseShader);
         Handle<Material> floorMaterial = createPlaneMaterial(resourceManager, baseShader, texture);
         Handle<Mesh> cubeMesh = createCubeMesh(resourceManager);
         Handle<Mesh> planeMesh = createPlaneMesh(resourceManager);
 
         auto scene = std::make_unique<Scene>();
+        scene->directionalLight = {
+            .direction = glm::vec3(-1, -1, -1),
+            .intensity = 1,
+            .color = glm::vec4(1, 0.8f, 0.8f, 1),
+        };
+
         auto& objects = scene->getObjects();
 
         auto cube1 = std::make_unique<GameObject>();
         cube1->mesh = cubeMesh;
         cube1->materials.push_back(cubeMaterial);
-        cube1->transform.position = glm::vec3(0.0f, 0.1251f, 0.0f);
+        cube1->transform.position = glm::vec3(0.0f, 0.25f, 0.0f);
         cube1->transform.eulerAngles = glm::vec3(0.0f, 20.0f, 0.0f);
         cube1->transform.scale = glm::vec3(1.0f, 0.25f, 1.5f);
         objects.push_back(std::move(cube1));
@@ -227,7 +231,7 @@ int main() {
     
     auto resourceManager = std::make_unique<ResourceManager>();
     auto rhi = std::make_unique<Vulkan::VulkanRenderer>(application);
-    auto renderer = std::make_unique<Renderer>(rhi.get(), resourceManager.get());
+    auto renderer = std::make_unique<Renderer>(rhi.get(), resourceManager.get(), window);
     auto camera = std::make_unique<Camera>();
     camera->transform.position = glm::vec3(-4, 4, 4);
     camera->transform.eulerAngles = glm::vec3(-45.0f, -45.0f, 0.0f);

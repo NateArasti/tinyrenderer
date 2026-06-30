@@ -12,13 +12,18 @@ target_include_directories(rendering_vulkan PUBLIC
 )
 
 target_link_libraries(rendering_vulkan
-    PUBLIC
+    PRIVATE
         app
         rendering
-        Vulkan::Vulkan
+        resources
+        data
 )
 
 find_package(Vulkan REQUIRED)
+target_link_libraries(rendering_vulkan
+    PUBLIC
+        Vulkan::Vulkan
+)
 find_package(glfw3 CONFIG REQUIRED)
 target_link_libraries(rendering_vulkan
     PRIVATE

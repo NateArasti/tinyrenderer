@@ -10,12 +10,10 @@
 #include <iostream>
 #include <algorithm>
 
-#include "uniform_buffer_object.h"
+#include "scene_data.h"
 
 namespace tr::Rendering::Vulkan {
-    VulkanRenderer::VulkanRenderer(const tr::App::Application& application)
-        : _application(application
-    ) {
+    VulkanRenderer::VulkanRenderer(const tr::App::Application& application) : _application(application) {
         createInstance();
         createSurface();
         pickPhysicalDevice();
@@ -516,8 +514,10 @@ namespace tr::Rendering::Vulkan {
 	void VulkanRenderer::createDescriptorSetLayout() {
 		std::array bindings = {
             vk::DescriptorSetLayoutBinding(
-                0, vk::DescriptorType::eUniformBuffer,
-                1, vk::ShaderStageFlagBits::eVertex,
+                0,
+                vk::DescriptorType::eUniformBuffer,
+                1,
+                vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
                 nullptr
             ),
         };
@@ -554,7 +554,7 @@ namespace tr::Rendering::Vulkan {
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
-			vk::DeviceSize bufferSize = sizeof(CameraData);
+			vk::DeviceSize bufferSize = sizeof(SceneData);
 			auto [buffer, bufferMem]  = createBuffer(
                 bufferSize,
                 vk::BufferUsageFlagBits::eUniformBuffer,
@@ -569,11 +569,11 @@ namespace tr::Rendering::Vulkan {
     void VulkanRenderer::createDescriptorPool() {
 		std::array poolSize {
 		    vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT),
-            vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, MAX_MATERIAL_DESCRIPTORS)
+            vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, MAX_MATERIALS)
         };
         vk::DescriptorPoolCreateInfo poolInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-            .maxSets = MAX_FRAMES_IN_FLIGHT + MAX_MATERIAL_DESCRIPTORS,
+            .maxSets = MAX_FRAMES_IN_FLIGHT + MAX_MATERIALS,
             .poolSizeCount = static_cast<uint32_t>(poolSize.size()),
             .pPoolSizes = poolSize.data()
         };
@@ -595,7 +595,7 @@ namespace tr::Rendering::Vulkan {
             vk::DescriptorBufferInfo bufferInfo{
                 .buffer = _uniformBuffers[i],
                 .offset = 0,
-                .range = sizeof(CameraData)
+                .range = sizeof(SceneData)
             };
             vk::WriteDescriptorSet descriptorWrite{
                 .dstSet = _descriptorSets[i],
@@ -1549,7 +1549,7 @@ namespace tr::Rendering::Vulkan {
         commandBuffer.end();
     }
 
-    void VulkanRenderer::startFrame(const tr::Data::Camera& camera) {
+    void VulkanRenderer::startFrame(const tr::Rendering::SceneData& sceneData) {
         if (_frameStarted
             || _application.window->width() == 0
             || _application.window->height() == 0
@@ -1583,15 +1583,9 @@ namespace tr::Rendering::Vulkan {
             return;
         }
 
-        CameraData ubo{
-            .view = glm::inverse(camera.transform.getMatrix()),
-            .proj = glm::perspective(
-                glm::radians(camera.fov),
-                static_cast<float>(_swapchainExtent.width) / static_cast<float>(_swapchainExtent.height),
-                camera.near, camera.far)
-        };
-        ubo.proj[1][1] *= -1; // Flip Y axis for Vulkan clip space
-        memcpy(_uniformBuffersMapped[_currentImageIndex], &ubo, sizeof(ubo));
+        SceneData sceneDataCopy = sceneData;
+        sceneDataCopy.proj[1][1] *= -1; // Flip Y axis for Vulkan clip space
+        memcpy(_uniformBuffersMapped[_currentImageIndex], &sceneDataCopy, sizeof(sceneDataCopy));
 
         _device.resetFences({ *fence });
         

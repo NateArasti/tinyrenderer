@@ -10,6 +10,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "camera.h"
+#include "scene_data.h"
 
 namespace tr::Rendering {
     struct DrawCommand {
@@ -45,7 +46,7 @@ namespace tr::Rendering {
             tr::Resources::Handle<tr::Data::Mesh> handle,
             const tr::Data::Mesh& mesh) = 0;
 
-        virtual void startFrame(const tr::Data::Camera& camera) = 0;
+        virtual void startFrame(const tr::Rendering::SceneData& sceneData) = 0;
         virtual void draw(const DrawCommand& command) = 0;
         virtual void endFrame() = 0;
     };

@@ -19,7 +19,7 @@ namespace tr::Rendering::Vulkan {
     class VulkanRenderer : public RHI {
     private:
         static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-        static constexpr uint32_t MAX_MATERIAL_DESCRIPTORS = 32;
+        static constexpr uint32_t MAX_MATERIALS = 32;
 
         const std::vector<const char*> _requiredDeviceExtension = {
             vk::KHRSwapchainExtensionName
@@ -176,7 +176,7 @@ namespace tr::Rendering::Vulkan {
         void recordFrameEndCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex);
 
     public:
-        explicit VulkanRenderer(const tr::App::Application& window);
+        explicit VulkanRenderer(const tr::App::Application& application);
         ~VulkanRenderer();
 
         VulkanRenderer(const VulkanRenderer&) = delete;
@@ -201,7 +201,7 @@ namespace tr::Rendering::Vulkan {
             tr::Resources::Handle<tr::Data::Mesh> handle,
             const tr::Data::Mesh& mesh) override;
 
-        void startFrame(const tr::Data::Camera& camera) override;
+        void startFrame(const tr::Rendering::SceneData& sceneData) override;
         void draw(const DrawCommand& command) override;
         void endFrame() override;
     };

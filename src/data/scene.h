@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "gameobject.h"
+#include "light.h"
 
 namespace tr::Data {
     class Scene {
@@ -11,6 +12,8 @@ namespace tr::Data {
         std::vector<std::unique_ptr<GameObject>> _objects;
         
     public:
+        Light directionalLight;
+        
         Scene() = default;
         ~Scene() = default;
 
