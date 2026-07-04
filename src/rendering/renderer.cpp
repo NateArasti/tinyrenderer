@@ -33,20 +33,35 @@ namespace tr::Rendering {
     }
 
     void Renderer::renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene) {
+        float sceneRadius = 2 * std::max(std::max(scene.sceneSize.x, scene.sceneSize.y), scene.sceneSize.z);
+        glm::vec3 dir = glm::normalize(scene.directionalLight.direction);
+        float padding = sceneRadius;
+        glm::vec3 eye = scene.sceneCenter - dir * (sceneRadius + padding);
+        glm::vec3 up = glm::abs(dir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+        glm::mat4 lightView = glm::lookAt(eye, scene.sceneCenter, up);
+        glm::mat4 lightProj = glm::ortho(
+            -sceneRadius, sceneRadius,
+            -sceneRadius, sceneRadius,
+            0.0f, 2.0f * sceneRadius + padding
+        );
+        glm::mat4 lightViewProj = lightProj * lightView;
+
         SceneData sceneData{
             .view = glm::inverse(camera.transform.getMatrix()),
             .proj = glm::perspective(
                 glm::radians(camera.fov),
                 static_cast<float>(_window->width()) / static_cast<float>(_window->height()),
                 camera.near, camera.far),
-            .lightDirection = scene.directionalLight.direction,
-            .lightIntensity = scene.directionalLight.intensity,
-            .lightColor = scene.directionalLight.color,
             .cameraPos = camera.transform.position,
+            .lightIntensity = scene.directionalLight.intensity,
+            .lightDirection = scene.directionalLight.direction,
+            .lightColor = scene.directionalLight.color,
+            .lightViewProj = lightViewProj,
         };
         _renderingInterface->startFrame(sceneData);
 
-        auto cameraPosition = glm::vec3(camera.transform.getMatrix()[3]);
+        auto cameraPosition = camera.transform.position;
+        _opaqueDrawQueue.clear();
         _transparentDrawQueue.clear();
 
         for (const auto& object : scene.getObjects()) {
@@ -71,7 +86,7 @@ namespace tr::Rendering {
                 }
             }
             if (isOpaque) {
-                _renderingInterface->draw(command);
+                _opaqueDrawQueue.push_back(command);
             }
             else {
                 glm::vec3 pos = glm::vec3(command.modelMatrix[3]);
@@ -84,9 +99,21 @@ namespace tr::Rendering {
                 return a.second > b.second; // back to front
             }
         );
+
+        _renderingInterface->startShadowPass();
+        for (const auto& command : _opaqueDrawQueue) {
+            _renderingInterface->drawShadows(command); // dedicated simplified rendering
+        }
+        _renderingInterface->endShadowPass();
+
+        _renderingInterface->startColorPass();
+        for (const auto& command : _opaqueDrawQueue) {
+            _renderingInterface->draw(command);
+        }
         for (const auto& [command, depth] : _transparentDrawQueue) {
             _renderingInterface->draw(command);
         }
+        _renderingInterface->endColorPass();
 
         _renderingInterface->endFrame();
     }

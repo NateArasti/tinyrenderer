@@ -13,7 +13,9 @@ namespace tr::Data {
         
     public:
         Light directionalLight;
-        
+        glm::vec3 sceneCenter;
+        glm::vec3 sceneSize;
+
         Scene() = default;
         ~Scene() = default;
 

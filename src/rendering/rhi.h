@@ -32,6 +32,8 @@ namespace tr::Rendering {
         virtual void clearResources() = 0;
         virtual void resize(uint32_t width, uint32_t height) = 0;
 
+        virtual void createShadowShader(const tr::Data::Shader& shader) = 0;
+
         virtual void createShader(
             tr::Resources::Handle<tr::Data::Shader> handle,
             const tr::Data::Shader& shader) = 0;
@@ -47,7 +49,12 @@ namespace tr::Rendering {
             const tr::Data::Mesh& mesh) = 0;
 
         virtual void startFrame(const tr::Rendering::SceneData& sceneData) = 0;
+        virtual void startShadowPass() = 0;
+        virtual void drawShadows(const DrawCommand& command) = 0;
+        virtual void endShadowPass() = 0;
+        virtual void startColorPass() = 0;
         virtual void draw(const DrawCommand& command) = 0;
+        virtual void endColorPass() = 0;
         virtual void endFrame() = 0;
     };
 }

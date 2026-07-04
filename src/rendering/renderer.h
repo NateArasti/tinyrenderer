@@ -15,6 +15,7 @@ namespace tr::Rendering {
         tr::App::Window* _window = nullptr;
         RHI* _renderingInterface = nullptr;
         tr::Data::ResourceManager* _resourceManager = nullptr;
+        std::vector<DrawCommand> _opaqueDrawQueue;
         std::vector<std::pair<DrawCommand, float>> _transparentDrawQueue;
         
     public:

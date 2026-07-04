@@ -192,9 +192,9 @@ namespace {
 
         auto scene = std::make_unique<Scene>();
         scene->directionalLight = {
-            .direction = glm::vec3(-1, -1, -1),
+            .direction = glm::vec3(0.5f, -1, 0.5f),
             .intensity = 1,
-            .color = glm::vec4(1, 0.8f, 0.8f, 1),
+            .color = glm::vec4(1, 1, 1, 1),
         };
 
         auto& objects = scene->getObjects();
@@ -217,6 +217,30 @@ namespace {
 
         return scene;
     }
+
+    void calculateSceneBounds(tr::Data::Scene& scene, ResourceManager& resourceManager) {
+        glm::vec3 min(std::numeric_limits<float>::max());
+        glm::vec3 max(std::numeric_limits<float>::min());
+        bool hasGeometry = false;
+
+        for (const auto& object : scene.getObjects()) {
+            auto* mesh = resourceManager.meshesPool.get(object->mesh);
+            if (!mesh) continue;
+
+            glm::mat4 model = object->transform.getMatrix();
+            for (const auto& vertex : mesh->vertices) {
+                glm::vec3 worldPos = glm::vec3(model * glm::vec4(vertex.position, 1.0f));
+                min = glm::min(min, worldPos);
+                max = glm::max(max, worldPos);
+                hasGeometry = true;
+            }
+        }
+
+        if (!hasGeometry) return;
+
+        scene.sceneCenter = (min + max) * 0.5f;
+        scene.sceneSize = max - min;
+    }
 }
 
 int main() {
@@ -230,7 +254,12 @@ int main() {
     fmt::println("Starting {} with ({}, {}) window. Version={}.", application.name, window->width(), window->height(), application.version);
     
     auto resourceManager = std::make_unique<ResourceManager>();
+
     auto rhi = std::make_unique<Vulkan::VulkanRenderer>(application);
+    auto shadowShader = std::make_unique<Shader>("shadow", "../shaders/shadow.spv");
+    shadowShader->vertName = "main";
+    rhi->createShadowShader(*shadowShader);
+    
     auto renderer = std::make_unique<Renderer>(rhi.get(), resourceManager.get(), window);
     auto camera = std::make_unique<Camera>();
     camera->transform.position = glm::vec3(-4, 4, 4);
@@ -241,6 +270,7 @@ int main() {
 
     resourceManager->clear();
     auto scene = createDefaultScene(*resourceManager);
+    calculateSceneBounds(*scene, *resourceManager);
     renderer->reloadResources();
 
     std::unique_ptr<CameraController> cameraController = std::make_unique<FreeMoveController>(*camera);

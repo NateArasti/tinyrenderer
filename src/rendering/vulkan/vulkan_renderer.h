@@ -20,6 +20,7 @@ namespace tr::Rendering::Vulkan {
     private:
         static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
         static constexpr uint32_t MAX_MATERIALS = 32;
+        static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
 
         const std::vector<const char*> _requiredDeviceExtension = {
             vk::KHRSwapchainExtensionName
@@ -69,6 +70,14 @@ namespace tr::Rendering::Vulkan {
         vk::raii::DeviceMemory _depthImageMemory = nullptr;
         vk::raii::ImageView _depthImageView = nullptr;
 
+        vk::Format _shadowFormat = vk::Format::eD32Sfloat;
+        vk::raii::PipelineLayout _shadowPipelineLayout = nullptr;
+        vk::raii::Pipeline _shadowPipeline = nullptr;
+        vk::raii::Image _shadowImage = nullptr;
+        vk::raii::DeviceMemory _shadowImageMemory = nullptr;
+        vk::raii::ImageView _shadowImageView = nullptr;
+        vk::raii::Sampler _shadowSampler = nullptr;
+
         vk::raii::Image _fallbackImage = nullptr;
         vk::raii::DeviceMemory _fallbackImageMemory = nullptr;
         vk::raii::ImageView _fallbackImageView = nullptr;
@@ -98,6 +107,8 @@ namespace tr::Rendering::Vulkan {
         bool _swapchainDirty = false;
         bool _initialized = false;
 
+        SceneData _lastSceneData;
+
         void createInstance();
         void setupDebugMessenger();
         void createSurface();
@@ -110,6 +121,7 @@ namespace tr::Rendering::Vulkan {
         void createFallbackTexture();
         void createColorResources();
         void createDepthResources();
+        void createShadowResources();
         void createCommandBuffers();
         void createUniformBuffers();
         void createDescriptorPool();
@@ -117,6 +129,8 @@ namespace tr::Rendering::Vulkan {
         void createSyncObjects();
         void cleanupSwapchain();
         void recreateSwapchain();
+
+        void setDebugName(vk::ObjectType type, uint64_t handle, const char* name);
 
         std::unique_ptr<vk::raii::CommandBuffer> beginSingleTimeCommands();
         void endSingleTimeCommands(const vk::raii::CommandBuffer& commandBuffer) const;
@@ -172,9 +186,6 @@ namespace tr::Rendering::Vulkan {
             uint32_t mipLevels
         );
 
-        void recordFrameStartCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex);
-        void recordFrameEndCommands(vk::CommandBuffer commandBuffer, uint32_t imageIndex);
-
     public:
         explicit VulkanRenderer(const tr::App::Application& application);
         ~VulkanRenderer();
@@ -186,6 +197,8 @@ namespace tr::Rendering::Vulkan {
 
         void clearResources() override;
         void resize(uint32_t width, uint32_t height) override;
+
+        void createShadowShader(const tr::Data::Shader& shader) override;
 
         void createShader(
             tr::Resources::Handle<tr::Data::Shader> handle,
@@ -200,9 +213,14 @@ namespace tr::Rendering::Vulkan {
         void createMesh(
             tr::Resources::Handle<tr::Data::Mesh> handle,
             const tr::Data::Mesh& mesh) override;
-
+        
         void startFrame(const tr::Rendering::SceneData& sceneData) override;
+        void startShadowPass() override;
+        void drawShadows(const DrawCommand& command) override;
+        void endShadowPass() override;
+        void startColorPass() override;
         void draw(const DrawCommand& command) override;
+        void endColorPass() override;
         void endFrame() override;
     };
 }
