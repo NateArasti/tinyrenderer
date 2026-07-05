@@ -9,6 +9,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(tinyrenderer src/main.cpp)
+if(WIN32)
+    set_target_properties(tinyrenderer PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 
 add_subdirectory(src/app)
 add_subdirectory(src/resources)
