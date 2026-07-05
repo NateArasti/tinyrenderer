@@ -89,7 +89,7 @@ VSOutput vertMain(VSInput input) {
 }
 
 [shader("fragment")]
-float4 fragMain(VSOutput vertIn) : SV_TARGET {
+float4 fragMain(VSOutput vertIn, bool isFrontFace : SV_IsFrontFace) : SV_TARGET {
     float4 baseColor = albedo.Sample(vertIn.uv) * vertIn.color * params.diffuseColor;
 
     float3 N = normalize(vertIn.normal);
@@ -119,7 +119,9 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 kD = float3(1.0) - kS;
     kD *= 1.0 - params.metallicFactor;
 
-    float shadow = calculateSoftShadow(mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1)), NdotL);
+    float shadow = isFrontFace && NdotL > 0.0
+        ? calculateSoftShadow(mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1)), NdotL)
+        : 1.0;
 
     float3 radiance = sceneData.lightColor.rgb * sceneData.lightIntensity;
     float3 Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL * shadow;
