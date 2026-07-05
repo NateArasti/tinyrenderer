@@ -32,25 +32,6 @@ using namespace tr::Rendering;
 using namespace tr::Controllers;
 
 namespace {
-    Handle<Texture> loadTexture(ResourceManager& resourceManager, const char* path) {
-        auto texture = std::make_unique<Texture>();
-        int texWidth, texHeight, texChannels;
-        stbi_uc* raw = stbi_load(path, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-        if (!raw) {
-            throw std::runtime_error(std::string("Failed to load texture: ") + stbi_failure_reason());
-        }
-
-        uint32_t forcedChannelCount = 4; // STBI_rgb_alpha forced
-        texture->width = static_cast<uint32_t>(texWidth);
-        texture->height = static_cast<uint32_t>(texHeight);
-        texture->channels = forcedChannelCount;
-        texture->pixels.assign(raw, raw + texWidth * texHeight * forcedChannelCount);
-
-        stbi_image_free(raw);
-        
-        return resourceManager.texturesPool.add(std::move(texture));
-    }
-
     Handle<Material> createCubeMaterial(ResourceManager& resourceManager, Handle<Shader> shader) {
         auto material = std::make_unique<Material>(shader);
         material->name = "base";
@@ -58,16 +39,11 @@ namespace {
         return resourceManager.materialsPool.add(std::move(material));
     }
 
-    Handle<Material> createPlaneMaterial(
-        ResourceManager& resourceManager,
-        Handle<Shader> shader,
-        Handle<Texture> texture
-    ) {
+    Handle<Material> createPlaneMaterial( ResourceManager& resourceManager, Handle<Shader> shader) {
         auto material = std::make_unique<Material>(shader);
         material->name = "base";
         material->
-            set("albedo", texture)
-            .set("metallicFactor", 0.5f)
+            set("metallicFactor", 0.5f)
             .set("roughnessFactor", 0.5f);
         return resourceManager.materialsPool.add(std::move(material));
     }
@@ -151,9 +127,8 @@ namespace {
     std::unique_ptr<Scene> createDefaultScene(ResourceManager& resourceManager, Handle<Shader> baseShader) {
         fmt::println("Switching to default scene");
 
-        Handle<Texture> texture = loadTexture(resourceManager, "../textures/texture.jpg");
         Handle<Material> cubeMaterial = createCubeMaterial(resourceManager, baseShader);
-        Handle<Material> floorMaterial = createPlaneMaterial(resourceManager, baseShader, texture);
+        Handle<Material> floorMaterial = createPlaneMaterial(resourceManager, baseShader);
         Handle<Mesh> cubeMesh = createCubeMesh(resourceManager);
         Handle<Mesh> planeMesh = createPlaneMesh(resourceManager);
 
