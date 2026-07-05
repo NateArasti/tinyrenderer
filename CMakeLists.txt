@@ -13,6 +13,7 @@ add_executable(tinyrenderer src/main.cpp)
 add_subdirectory(src/app)
 add_subdirectory(src/resources)
 add_subdirectory(src/data)
+add_subdirectory(src/embedded_shaders)
 add_subdirectory(src/rendering)
 add_subdirectory(src/controllers)
 
@@ -21,6 +22,7 @@ target_link_libraries(tinyrenderer
         app
         resources
         data
+        embedded_shaders
         rendering
         controllers
 )

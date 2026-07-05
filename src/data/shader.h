@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -56,6 +57,12 @@ namespace tr::Data {
             file.seekg(0, std::ios::beg);
             file.read(_code.data(), static_cast<std::streamsize>(_code.size()));
         }
+
+        Shader(std::string name, std::vector<char> code)
+            : _name(std::move(name)), _code(std::move(code)) {
+        }
+
+        virtual ~Shader() = default;
 
         const auto& getCode() const { return _code; }
 

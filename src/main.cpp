@@ -15,6 +15,8 @@
 #include "scene.h"
 #include "camera.h"
 #include "handle.h"
+#include "pbr.h"
+#include "shadow.h"
 
 #include "orbit_controller.h"
 #include "free_move_controller.h"
@@ -30,40 +32,6 @@ using namespace tr::Rendering;
 using namespace tr::Controllers;
 
 namespace {
-    Handle<Shader> loadDefaultShader(ResourceManager& resourceManager) {
-        auto shader = std::make_unique<Shader>("base", "../shaders/pbr.spv");
-        shader->vertName = "vertMain";
-        shader->fragName = "fragMain";
-        shader->cullMode = CullMode::None;
-        shader->params = {
-            {
-                "diffuseColor",
-                glm::vec4(1)
-            },
-            {
-                "ambientColor",
-                glm::vec4(0.03f, 0.03f, 0.03f, 1.0f)
-            },
-            {
-                "specularColor",
-                glm::vec4(0.5)
-            },
-            {
-                "metallicFactor",
-                0.0f
-            },
-            {
-                "roughnessFactor",
-                1.0f
-            },
-            {
-                "albedo",
-                Handle<Texture>{}
-            }
-        };
-        return resourceManager.shadersPool.add(std::move(shader));
-    }
-
     Handle<Texture> loadTexture(ResourceManager& resourceManager, const char* path) {
         auto texture = std::make_unique<Texture>();
         int texWidth, texHeight, texChannels;
@@ -180,10 +148,9 @@ namespace {
         return resourceManager.meshesPool.add(std::move(mesh));
     }
 
-    std::unique_ptr<Scene> createDefaultScene(ResourceManager& resourceManager) {
+    std::unique_ptr<Scene> createDefaultScene(ResourceManager& resourceManager, Handle<Shader> baseShader) {
         fmt::println("Switching to default scene");
 
-        Handle<Shader> baseShader = loadDefaultShader(resourceManager);
         Handle<Texture> texture = loadTexture(resourceManager, "../textures/texture.jpg");
         Handle<Material> cubeMaterial = createCubeMaterial(resourceManager, baseShader);
         Handle<Material> floorMaterial = createPlaneMaterial(resourceManager, baseShader, texture);
@@ -252,12 +219,11 @@ int main() {
     Window* window = application.window.get();
 
     fmt::println("Starting {} with ({}, {}) window. Version={}.", application.name, window->width(), window->height(), application.version);
-    
+
     auto resourceManager = std::make_unique<ResourceManager>();
 
     auto rhi = std::make_unique<Vulkan::VulkanRenderer>(application);
-    auto shadowShader = std::make_unique<Shader>("shadow", "../shaders/shadow.spv");
-    shadowShader->vertName = "main";
+    auto shadowShader = std::make_unique<EmbeddedShaders::Shadow>();
     rhi->createShadowShader(*shadowShader);
     
     auto renderer = std::make_unique<Renderer>(rhi.get(), resourceManager.get(), window);
@@ -269,7 +235,8 @@ int main() {
     camera->far = 50;
 
     resourceManager->clear();
-    auto scene = createDefaultScene(*resourceManager);
+    auto baseShader = resourceManager->shadersPool.add(std::make_unique<EmbeddedShaders::Pbr>());
+    auto scene = createDefaultScene(*resourceManager, baseShader);
     calculateSceneBounds(*scene, *resourceManager);
     renderer->reloadResources();
 
