@@ -21,6 +21,6 @@ namespace tr::Controllers {
         float zoomSensitivity = 0.75f;
 
         explicit OrbitController(tr::Data::Camera& camera);
-        void update(tr::Data::Camera& camera, tr::App::Window& window) override;
+        void update(tr::Data::Camera& camera, tr::App::Input& input, float deltaTime) override;
     };
 }

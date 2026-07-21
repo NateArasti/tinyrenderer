@@ -3,12 +3,13 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <stdexcept>
-#include <vector>
-#include <cstring>
 
 namespace tr::App {
     Window::Window(int width, int height, std::string_view title)
-        : _width(width), _height(height)
+        : _logicalWidth(width),
+          _logicalHeight(height),
+          _framebufferWidth(width),
+          _framebufferHeight(height)
     {
         if (!glfwInit()) throw std::runtime_error("glfwInit failed");
 
@@ -29,22 +30,36 @@ namespace tr::App {
         }
 
         glfwSetWindowUserPointer(static_cast<GLFWwindow*>(_window), this);
+        glfwSetWindowSizeCallback(
+            static_cast<GLFWwindow*>(_window),
+            [](GLFWwindow* glfwWindow, int width, int height) {
+                auto* window = static_cast<Window*>(glfwGetWindowUserPointer(glfwWindow));
+                window->_logicalWidth = static_cast<uint32_t>(width);
+                window->_logicalHeight = static_cast<uint32_t>(height);
+            }
+        );
         glfwSetFramebufferSizeCallback(
             static_cast<GLFWwindow*>(_window),
             [](GLFWwindow* glfwWindow, int width, int height) {
                 auto* window = static_cast<Window*>(glfwGetWindowUserPointer(glfwWindow));
-                window->_width = static_cast<uint32_t>(width);
-                window->_height = static_cast<uint32_t>(height);
+                window->_framebufferWidth = static_cast<uint32_t>(width);
+                window->_framebufferHeight = static_cast<uint32_t>(height);
                 window->_resized = true;
             }
         );
-        glfwSetScrollCallback(
-            static_cast<GLFWwindow*>(_window),
-            [](GLFWwindow* w, double, double y) {
-                auto* self = static_cast<Window*>(glfwGetWindowUserPointer(w));
-                self->_scrollDelta += static_cast<float>(y);
-            }
-        );
+        int logicalWidth;
+        int logicalHeight;
+        glfwGetWindowSize(static_cast<GLFWwindow*>(_window), &logicalWidth, &logicalHeight);
+        _logicalWidth = static_cast<uint32_t>(logicalWidth);
+        _logicalHeight = static_cast<uint32_t>(logicalHeight);
+
+        int framebufferWidth;
+        int framebufferHeight;
+        glfwGetFramebufferSize(static_cast<GLFWwindow*>(_window), &framebufferWidth, &framebufferHeight);
+        _framebufferWidth = static_cast<uint32_t>(framebufferWidth);
+        _framebufferHeight = static_cast<uint32_t>(framebufferHeight);
+
+        _lastTime = static_cast<float>(glfwGetTime());
     }
 
     Window::~Window() {
@@ -58,37 +73,9 @@ namespace tr::App {
 
     void Window::pollEvents() {
         glfwPollEvents();
-    }
 
-    glm::vec2 Window::mousePos() const {
-        double x, y;
-        glfwGetCursorPos(static_cast<GLFWwindow*>(_window), &x, &y);
-        return { static_cast<float>(x), static_cast<float>(y) };
-    }
-
-    bool Window::isMouseButtonDown(int button) const {
-        return glfwGetMouseButton(static_cast<GLFWwindow*>(_window), button) == GLFW_PRESS;
-    }
-
-    float Window::scrollDelta() {
-        float val = _scrollDelta;
-        _scrollDelta = 0.0f;
-        return val;
-    }
-    
-    bool Window::isKeyDown(int key) const {
-        return glfwGetKey(static_cast<GLFWwindow*>(_window), key) == GLFW_PRESS;
-    }
-
-    void Window::captureCursor(bool captured) {
-        glfwSetInputMode(static_cast<GLFWwindow*>(_window), GLFW_CURSOR,
-            captured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
-    }
-
-    float Window::deltaTime() {
-        float now = static_cast<float>(glfwGetTime());
+        const float now = static_cast<float>(glfwGetTime());
         _deltaTime = now - _lastTime;
         _lastTime = now;
-        return _deltaTime;
     }
 }

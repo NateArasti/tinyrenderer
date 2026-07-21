@@ -1,5 +1,4 @@
 #include "orbit_controller.h"
-#include <GLFW/glfw3.h>
 #include <glm/gtc/constants.hpp>
 #include <algorithm>
 #include <cmath>
@@ -25,8 +24,8 @@ namespace tr::Controllers {
         camera.transform.eulerAngles = glm::vec3(-_pitch, _yaw, 0.0f);
     }
 
-    void OrbitController::update(tr::Data::Camera& camera, tr::App::Window& window) {
-        glm::vec2 mousePos = window.mousePos();
+    void OrbitController::update(tr::Data::Camera& camera, tr::App::Input& input, float) {
+        glm::vec2 mousePos = input.mousePosition();
         if (_firstFrame) {
             _prevMousePos = mousePos;
             _firstFrame = false;
@@ -37,13 +36,13 @@ namespace tr::Controllers {
 
         bool dirty = false;
 
-        if (window.isMouseButtonDown(GLFW_MOUSE_BUTTON_MIDDLE)) {
+        if (input.isMouseButtonDown(tr::App::MouseButton::Middle)) {
             _yaw -= delta.x * sensitivity;
             _pitch = std::clamp(_pitch + delta.y * sensitivity, -89.0f, 89.0f);
             dirty = true;
         }
 
-        float scroll = window.scrollDelta();
+        float scroll = input.scrollDelta();
         if (scroll != 0.0f) {
             _distance = std::clamp(_distance - scroll * zoomSensitivity, 0.1f, maxRadius);
             dirty = true;

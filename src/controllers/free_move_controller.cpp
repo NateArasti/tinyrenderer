@@ -1,33 +1,30 @@
 #include "free_move_controller.h"
 
-#include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
 
 #include "camera.h"
-#include "window.h"
+#include "input.h"
 
 namespace tr::Controllers {
     FreeMoveController::FreeMoveController(tr::Data::Camera& camera) {}
 
-    void FreeMoveController::update(tr::Data::Camera& camera, tr::App::Window& window) {
-        float dt = window.deltaTime();
-        
-        glm::vec2 mousePos = window.mousePos();
+    void FreeMoveController::update(tr::Data::Camera& camera, tr::App::Input& input, float deltaTime) {
+        glm::vec2 mousePos = input.mousePosition();
         if (_firstFrame) {
             _prevMousePos = mousePos;
             _firstFrame = false;
         }
 
-        bool rmb = window.isMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT);
+        bool rmb = input.isMouseButtonDown(tr::App::MouseButton::Right);
 
         if (rmb && !_captured) {
-            window.captureCursor(true);
+            input.captureCursor(true);
             _captured = true;
             _prevMousePos = mousePos;
         } else if (!rmb && _captured) {
-            window.captureCursor(false);
+            input.captureCursor(false);
             _captured = false;
         }
 
@@ -53,15 +50,15 @@ namespace tr::Controllers {
 
         glm::vec3 move{0.0f};
 
-        if (window.isKeyDown(GLFW_KEY_W)) move += forward;
-        if (window.isKeyDown(GLFW_KEY_S)) move -= forward;
-        if (window.isKeyDown(GLFW_KEY_D)) move += right;
-        if (window.isKeyDown(GLFW_KEY_A)) move -= right;
-        if (window.isKeyDown(GLFW_KEY_E)) move += glm::vec3(0, 1, 0);
-        if (window.isKeyDown(GLFW_KEY_Q)) move -= glm::vec3(0, 1, 0);
+        if (input.isKeyPressed(tr::App::Key::W)) move += forward;
+        if (input.isKeyPressed(tr::App::Key::S)) move -= forward;
+        if (input.isKeyPressed(tr::App::Key::D)) move += right;
+        if (input.isKeyPressed(tr::App::Key::A)) move -= right;
+        if (input.isKeyPressed(tr::App::Key::E)) move += glm::vec3(0, 1, 0);
+        if (input.isKeyPressed(tr::App::Key::Q)) move -= glm::vec3(0, 1, 0);
 
         if (glm::length(move) > 0.0f) {
-            camera.transform.position += glm::normalize(move) * speed * dt;
+            camera.transform.position += glm::normalize(move) * speed * deltaTime;
         }
     }
 }

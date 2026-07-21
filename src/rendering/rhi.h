@@ -3,6 +3,7 @@
 #include <span>
 
 #include <glm/glm.hpp>
+#include <imgui.h>
 
 #include "handle.h"
 #include "shader.h"
@@ -29,6 +30,7 @@ namespace tr::Rendering {
         RHI(RHI&&) = delete;
         RHI& operator=(RHI&&) = delete;
 
+        virtual std::string getDeviceName() const = 0;
         virtual void clearResources() = 0;
         virtual void resize(uint32_t width, uint32_t height) = 0;
 
@@ -55,6 +57,8 @@ namespace tr::Rendering {
         virtual void startColorPass() = 0;
         virtual void draw(const DrawCommand& command) = 0;
         virtual void endColorPass() = 0;
+        virtual void prepareUI() = 0;
+        virtual void drawUI(ImDrawData* drawData) = 0;
         virtual void endFrame() = 0;
     };
 }

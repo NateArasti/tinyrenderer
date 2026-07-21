@@ -34,7 +34,7 @@ namespace tr::Rendering {
         }
     }
 
-    void Renderer::renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene) {
+    void Renderer::renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene, ImDrawData* uiDrawData) {
         float sceneRadius = 2 * std::max(std::max(scene.sceneSize.x, scene.sceneSize.y), scene.sceneSize.z);
         glm::vec3 dir = glm::normalize(scene.directionalLight.direction);
         float padding = sceneRadius;
@@ -116,6 +116,8 @@ namespace tr::Rendering {
             _renderingInterface->draw(command);
         }
         _renderingInterface->endColorPass();
+
+        _renderingInterface->drawUI(uiDrawData);
 
         _renderingInterface->endFrame();
     }

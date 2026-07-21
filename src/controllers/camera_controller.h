@@ -1,12 +1,12 @@
 #pragma once
 
 #include "camera.h"
-#include "window.h"
+#include "input.h"
 
 namespace tr::Controllers {
     class CameraController {
     public:
         virtual ~CameraController() = default;
-        virtual void update(tr::Data::Camera& camera, tr::App::Window& window) = 0;
+        virtual void update(tr::Data::Camera& camera, tr::App::Input& input, float deltaTime) = 0;
     };
 }

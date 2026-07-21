@@ -16,6 +16,7 @@ target_link_libraries(rendering
         app
         resources
         data
+        ui
 )
 
 add_subdirectory(vulkan)

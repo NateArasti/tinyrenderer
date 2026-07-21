@@ -129,6 +129,7 @@ namespace tr::Rendering::Vulkan {
         void createSyncObjects();
         void cleanupSwapchain();
         void recreateSwapchain();
+        void createUIObjects();
 
         void setDebugName(vk::ObjectType type, uint64_t handle, const char* name);
 
@@ -195,6 +196,10 @@ namespace tr::Rendering::Vulkan {
         VulkanRenderer(VulkanRenderer&&) = delete;
         VulkanRenderer& operator=(VulkanRenderer&&) = delete;
 
+        std::string getDeviceName() const override {
+            const auto properties = _physicalDevice.getProperties();
+            return properties.deviceName.data();
+        }
         void clearResources() override;
         void resize(uint32_t width, uint32_t height) override;
 
@@ -221,6 +226,8 @@ namespace tr::Rendering::Vulkan {
         void startColorPass() override;
         void draw(const DrawCommand& command) override;
         void endColorPass() override;
+        void prepareUI() override;
+        void drawUI(ImDrawData* drawData) override;
         void endFrame() override;
     };
 }

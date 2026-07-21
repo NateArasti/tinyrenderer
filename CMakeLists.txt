@@ -10,7 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_executable(tinyrenderer src/main.cpp)
 if(WIN32)
-    set_target_properties(tinyrenderer PROPERTIES WIN32_EXECUTABLE TRUE)
+    set_target_properties(tinyrenderer PROPERTIES
+        WIN32_EXECUTABLE "$<$<CONFIG:Release>:TRUE>"
+    )
 endif()
 
 add_subdirectory(src/app)
@@ -19,6 +21,7 @@ add_subdirectory(src/data)
 add_subdirectory(src/embedded_shaders)
 add_subdirectory(src/rendering)
 add_subdirectory(src/controllers)
+add_subdirectory(src/ui)
 
 target_link_libraries(tinyrenderer 
     PRIVATE 
@@ -28,6 +31,7 @@ target_link_libraries(tinyrenderer
         embedded_shaders
         rendering
         controllers
+        ui
 )
 
 target_link_libraries(tinyrenderer PRIVATE rendering_vulkan)

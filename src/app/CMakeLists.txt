@@ -14,3 +14,7 @@ target_link_libraries(app PRIVATE glfw)
 
 find_package(glm CONFIG REQUIRED)
 target_link_libraries(app INTERFACE glm::glm)
+
+if(WIN32)
+    target_link_libraries(app PRIVATE ole32 shell32)
+endif()

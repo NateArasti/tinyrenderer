@@ -1,9 +1,11 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
 
+#include <cmath>
 #include <string>
 #include <memory>
 #include <fmt/base.h>
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -18,6 +20,9 @@
 #include "pbr.h"
 #include "shadow.h"
 
+#include "ui_provider.h"
+#include "ui_data.h"
+#include "file_picker.h"
 #include "orbit_controller.h"
 #include "free_move_controller.h"
 #include "vulkan_renderer.h"
@@ -30,6 +35,7 @@ using namespace tr::Resources;
 using namespace tr::Data;
 using namespace tr::Rendering;
 using namespace tr::Controllers;
+using namespace tr::UI;
 
 namespace {
     Handle<Material> createCubeMaterial(ResourceManager& resourceManager, Handle<Shader> shader) {
@@ -160,6 +166,19 @@ namespace {
         return scene;
     }
 
+    std::unique_ptr<Scene> loadModel(ResourceManager& resourceManager, Handle<Shader> baseShader) {
+        return std::make_unique<Scene>();
+    }
+}
+
+struct TinyRenderer {
+    std::unique_ptr<ResourceManager> resourceManager;
+    std::unique_ptr<Renderer> renderer;
+
+    std::unique_ptr<Scene> currentScene;
+
+    using CreateScene = std::function<std::unique_ptr<Scene>(ResourceManager& resourceManager, Handle<Shader> baseShader)>;
+
     void calculateSceneBounds(tr::Data::Scene& scene, ResourceManager& resourceManager) {
         glm::vec3 min(std::numeric_limits<float>::max());
         glm::vec3 max(std::numeric_limits<float>::min());
@@ -183,43 +202,147 @@ namespace {
         scene.sceneCenter = (min + max) * 0.5f;
         scene.sceneSize = max - min;
     }
-}
+
+    void setupScene(CreateScene sceneFactory) {
+        resourceManager->clear();
+        auto baseShader = resourceManager->shadersPool.add(std::make_unique<EmbeddedShaders::Pbr>());
+        currentScene = sceneFactory(*resourceManager, baseShader);
+        calculateSceneBounds(*currentScene, *resourceManager);
+        renderer->reloadResources();
+    }
+};
 
 int main() {
+    TinyRenderer tr;
+
     Application application{
         .name = APP_NAME,
         .version = "v0.0.1",
         .window = std::make_unique<Window>(1280, 720, APP_NAME)
     };
     Window* window = application.window.get();
+    Input input(*window);
 
-    fmt::println("Starting {} with ({}, {}) window. Version={}.", application.name, window->width(), window->height(), application.version);
+    fmt::println("Starting {} with ({}, {}) window. Version={}.",
+        application.name,
+        window->width(),
+        window->height(),
+        application.version
+    );
+    
+    UIProvider provider(*window, input);
 
-    auto resourceManager = std::make_unique<ResourceManager>();
+    const std::string DEBUG_FPS = "DEBUG_FPS";
+    const std::string DEBUG_GPU = "DEBUG_GPU";
+
+    UIWindow debugWindow{
+        .leftSide = false,
+        .name = "Debug",
+        .lines = {
+            UILabel{ DEBUG_FPS, "FPS: 60" },
+            UILabel{ DEBUG_GPU, "Some Rendering Device" },
+        },
+        .additionalFlags = ImGuiWindowFlags_NoInputs
+    };
+
+    const std::string MODEL_NAME = "MODEL_NAME";
+    const std::string MODEL_LOAD = "MODEL_LOAD";
+    const std::string MODEL_LOAD_DEFAULT = "MODEL_LOAD_DEFAULT";
+
+    UIWindow modelWindow{
+        .name = "Model",
+        .lines = {
+            UILabel{ MODEL_NAME, "Default Scene" },
+            UISeparator{},
+            UIButton{
+                .key = MODEL_LOAD,
+                .label = "Load Model",
+            },
+            UISameLine {},
+            UIButton{
+                .key = MODEL_LOAD_DEFAULT,
+                .label = "Load Default Model",
+            },
+        },
+    };
+    
+    const std::string LIGHT_INTENSITY = "LIGHT_INTENSITY";
+    UIWindow lightWindow{
+        .name = "Light",
+        .lines = {
+            UIProperty{
+                .key = LIGHT_INTENSITY,
+                .label = "Intensity",
+                .value = 1.0f,
+                .onChanged = [&tr](const UIValue& intensity) {
+                    tr.currentScene->directionalLight.intensity = std::get<float>(intensity);
+                }
+            }
+        },
+    };
+
+    modelWindow.get<UIButton>(MODEL_LOAD)->onClick = [&modelWindow, &MODEL_NAME, &tr, &lightWindow, &LIGHT_INTENSITY]() {
+        std::unique_ptr<FilePicker> filePicker = createFilePicker();
+        filePicker->requestModelFile();
+        auto file = filePicker->pollResult();
+        std::string name = "";
+        if (file.has_value()) {
+            name = file.value().name;
+            fmt::println("Loading file {}", name);
+        }
+        else {
+            fmt::println("Didn't load any file");
+        }
+        tr.setupScene(loadModel);
+        modelWindow.setLabel(MODEL_NAME, name);
+        lightWindow.get<UIProperty>(LIGHT_INTENSITY)->value = tr.currentScene->directionalLight.intensity;
+    };
+    modelWindow.get<UIButton>(MODEL_LOAD_DEFAULT)->onClick = [&modelWindow, &MODEL_NAME, &tr, &lightWindow, &LIGHT_INTENSITY]() {
+        tr.setupScene(createDefaultScene);
+        modelWindow.setLabel(MODEL_NAME, "Default Scene");
+        lightWindow.get<UIProperty>(LIGHT_INTENSITY)->value = tr.currentScene->directionalLight.intensity;
+    };
+
+    UIState uiState{
+        .windows = {
+            &debugWindow,
+            &modelWindow,
+            &lightWindow
+        }
+    };
+
+    tr.resourceManager = std::make_unique<ResourceManager>();
 
     auto rhi = std::make_unique<Vulkan::VulkanRenderer>(application);
     auto shadowShader = std::make_unique<EmbeddedShaders::Shadow>();
     rhi->createShadowShader(*shadowShader);
+    tr.renderer = std::make_unique<Renderer>(rhi.get(), tr.resourceManager.get(), window);
+
+    tr.setupScene(createDefaultScene);
     
-    auto renderer = std::make_unique<Renderer>(rhi.get(), resourceManager.get(), window);
     auto camera = std::make_unique<Camera>();
     camera->transform.position = glm::vec3(-4, 4, 4);
     camera->transform.eulerAngles = glm::vec3(-45.0f, -45.0f, 0.0f);
     camera->fov = 60;
     camera->near = 0.1f;
     camera->far = 50;
-
-    resourceManager->clear();
-    auto baseShader = resourceManager->shadersPool.add(std::make_unique<EmbeddedShaders::Pbr>());
-    auto scene = createDefaultScene(*resourceManager, baseShader);
-    calculateSceneBounds(*scene, *resourceManager);
-    renderer->reloadResources();
-
     std::unique_ptr<CameraController> cameraController = std::make_unique<FreeMoveController>(*camera);
 
+    debugWindow.setLabel(DEBUG_GPU, rhi->getDeviceName());
+    lightWindow.get<UIProperty>(LIGHT_INTENSITY)->value = tr.currentScene->directionalLight.intensity;
+
+    bool showUI = true;
+    bool canReadInput;
+
     while (!window->shouldClose()) {
+        input.beginFrame();
         window->pollEvents();
-        cameraController->update(*camera, *window);
+
+        debugWindow.setLabel(DEBUG_FPS, fmt::format("FPS: {}", static_cast<int>(1.0f / window->deltaTime())));
+
+        if (input.isKeyJustPressed(Key::F1)) {
+            showUI = !showUI;
+        }
 
         if (window->wasResized()) {
             rhi->resize(window->width(), window->height());
@@ -227,8 +350,22 @@ int main() {
             fmt::println("Window was resized to ({}, {}).", window->width(), window->height());
         }
 
-        if (window->width() != 0 || window->height() != 0) {
-            renderer->renderScene(*camera, *scene);
+        canReadInput = true;
+        ImDrawData* uiDrawData = nullptr;
+
+        if (showUI) {
+            rhi->prepareUI();
+            UIFrame uiFrame = provider.update(uiState);
+            uiDrawData = uiFrame.drawData;
+            canReadInput = !uiFrame.wantsMouse && !uiFrame.wantsKeyboard;
+        }
+
+        if (canReadInput) {
+            cameraController->update(*camera, input, window->deltaTime());
+        }
+
+        if (window->width() != 0 && window->height() != 0) {
+            tr.renderer->renderScene(*camera, *tr.currentScene, uiDrawData);
         }
     }
 

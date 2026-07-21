@@ -16,6 +16,6 @@ namespace tr::Controllers {
         float sensitivity = 0.1f;
 
         explicit FreeMoveController(tr::Data::Camera& camera);
-        void update(tr::Data::Camera& camera, tr::App::Window& window) override;
+        void update(tr::Data::Camera& camera, tr::App::Input& input, float deltaTime) override;
     };
 }

@@ -10,6 +10,8 @@
 #include <iostream>
 #include <algorithm>
 
+#include <imgui_impl_vulkan.h>
+
 #include "scene_data.h"
 
 namespace tr::Rendering::Vulkan {
@@ -19,7 +21,7 @@ namespace tr::Rendering::Vulkan {
         constexpr bool enableValidationLayers = true;
 #endif
         
-        VulkanRenderer::VulkanRenderer(const tr::App::Application& application) : _application(application) {
+    VulkanRenderer::VulkanRenderer(const tr::App::Application& application) : _application(application) {
         createInstance();
         createSurface();
         pickPhysicalDevice();
@@ -38,6 +40,7 @@ namespace tr::Rendering::Vulkan {
 		createDescriptorPool();
 		createDescriptorSets();
         createSyncObjects();
+        createUIObjects();
         _initialized = true;
     }
 
@@ -47,6 +50,7 @@ namespace tr::Rendering::Vulkan {
         }
 
         _device.waitIdle();
+        ImGui_ImplVulkan_Shutdown();
         cleanupSwapchain();
         clearResources();
         _commandBuffers.clear();
@@ -57,6 +61,8 @@ namespace tr::Rendering::Vulkan {
     }
 
     void VulkanRenderer::clearResources() {
+        _device.waitIdle();
+        
         _shadersMap.clear();
         _materialsMap.clear();
         _meshesMap.clear();
@@ -1154,6 +1160,32 @@ namespace tr::Rendering::Vulkan {
 		}
     }
 
+    void VulkanRenderer::createUIObjects() {
+        VkFormat colorFormat = static_cast<VkFormat>(_swapchainImageFormat);
+
+        VkPipelineRenderingCreateInfo renderingInfo{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+            .colorAttachmentCount = 1,
+            .pColorAttachmentFormats = &colorFormat
+        };
+
+        ImGui_ImplVulkan_InitInfo info{};
+        info.ApiVersion = VK_API_VERSION_1_3;
+        info.Instance = static_cast<VkInstance>(*_instance);
+        info.PhysicalDevice = static_cast<VkPhysicalDevice>(*_physicalDevice);
+        info.Device = static_cast<VkDevice>(*_device);
+        info.QueueFamily = _queueIndex;
+        info.Queue = static_cast<VkQueue>(*_queue);
+        info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
+        info.MinImageCount = 2;
+        info.ImageCount = static_cast<uint32_t>(_swapchainImages.size());
+        info.UseDynamicRendering = true;
+        info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        info.PipelineInfoMain.PipelineRenderingCreateInfo = renderingInfo;
+
+        ImGui_ImplVulkan_Init(&info);
+    }
+
     void VulkanRenderer::createSyncObjects() {
         vk::SemaphoreCreateInfo semaphoreInfo{};
         vk::FenceCreateInfo fenceInfo{
@@ -1180,11 +1212,13 @@ namespace tr::Rendering::Vulkan {
         }
 
         _device.waitIdle();
+        ImGui_ImplVulkan_Shutdown();
         cleanupSwapchain();
         createSwapchain();
         createImageViews();
         createColorResources();
-		createDepthResources();
+        createDepthResources();
+        createUIObjects();
         _swapchainDirty = false;
     }
 
@@ -1893,6 +1927,48 @@ namespace tr::Rendering::Vulkan {
         auto& commandBuffer = _commandBuffers[_currentFrame];
         commandBuffer.endRendering();
         commandBuffer.endDebugUtilsLabelEXT();
+    }
+
+    void VulkanRenderer::prepareUI() {
+        ImGui_ImplVulkan_NewFrame();
+    }
+
+    void VulkanRenderer::drawUI(ImDrawData* drawData) {
+        if (!_frameStarted || drawData == nullptr) {
+            return;
+        }
+        vk::RenderingAttachmentInfo colorAttachment{
+            .imageView = *_swapchainImageViews[_currentImageIndex],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
+            .storeOp = vk::AttachmentStoreOp::eStore
+        };
+
+        vk::RenderingInfo renderingInfo{
+            .renderArea = {{0, 0}, _swapchainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachment
+        };
+
+        auto& commandBuffer = _commandBuffers[_currentFrame];
+        commandBuffer.beginRendering(renderingInfo);
+
+        ImGui_ImplVulkan_RenderDrawData(
+            drawData,
+            static_cast<VkCommandBuffer>(*commandBuffer)
+        );
+
+        commandBuffer.endRendering();
+    }
+    
+    void VulkanRenderer::endFrame() {
+        if (!_frameStarted) {
+            return;
+        }
+
+        auto& commandBuffer = _commandBuffers[_currentFrame];
+
         transitionImageLayout(
             _swapchainImages[_currentImageIndex],
             vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
@@ -1901,15 +1977,9 @@ namespace tr::Rendering::Vulkan {
             vk::ImageAspectFlagBits::eColor
         );
         commandBuffer.end();
-    }
-    
-    void VulkanRenderer::endFrame() {
-        if (!_frameStarted) {
-            return;
-        }
 
         vk::CommandBufferSubmitInfo commandBufferInfo{
-            .commandBuffer = _commandBuffers[_currentFrame]
+            .commandBuffer = commandBuffer
         };
         vk::SemaphoreSubmitInfo waitSemaphoreInfo{
             .semaphore = *_imageAvailableSemaphores[_currentFrame],

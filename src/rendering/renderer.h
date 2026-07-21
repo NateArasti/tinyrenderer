@@ -3,6 +3,8 @@
 #include <vector>
 #include <memory>
 
+#include <imgui.h>
+
 #include "rhi.h"
 #include "resource_manager.h"
 #include "scene.h"
@@ -29,6 +31,6 @@ namespace tr::Rendering {
 
         void reloadResources();
         void clearState();
-        void renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene);
+        void renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene, ImDrawData* uiDrawData);
     };
 }

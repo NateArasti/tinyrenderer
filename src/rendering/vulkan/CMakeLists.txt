@@ -19,6 +19,13 @@ target_link_libraries(rendering_vulkan
         data
 )
 
+find_package(imgui CONFIG REQUIRED)
+target_link_libraries(rendering_vulkan
+    PRIVATE
+        ui
+        imgui::imgui
+)
+
 find_package(Vulkan REQUIRED)
 target_link_libraries(rendering_vulkan
     PUBLIC
