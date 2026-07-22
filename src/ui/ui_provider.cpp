@@ -1,10 +1,6 @@
 #include "ui_provider.h"
 
 #include <algorithm>
-#include <array>
-#include <cstdio>
-#include <type_traits>
-#include <utility>
 
 #include <imgui.h>
 
@@ -48,49 +44,6 @@ namespace tr::UI {
             case Key::RightSuper: return ImGuiKey_RightSuper;
             default: return ImGuiKey_None;
             }
-        }
-
-        void drawButton(UIFrame& frame, UIButton& action) {
-            const char* label = action.label.empty() ? action.key.c_str() : action.label.c_str();
-            if (ImGui::Button(label)) {
-                if (action.onClick) {
-                    action.onClick();
-                }
-            }
-        }
-
-        void drawProperty(UIFrame& frame, UIProperty& property) {
-            const char* label = property.label.empty() ? property.key.c_str() : property.label.c_str();
-            std::visit(
-                [&](auto& value) {
-                    using T = std::decay_t<decltype(value)>;
-                    bool changed = false;
-
-                    if constexpr (std::is_same_v<T, bool>) {
-                        changed = ImGui::Checkbox(label, &value);
-                    }
-                    else if constexpr (std::is_same_v<T, int>) {
-                        changed = ImGui::DragInt(label, &value);
-                    }
-                    else if constexpr (std::is_same_v<T, float>) {
-                        changed = ImGui::DragFloat(label, &value, 0.01f);
-                    }
-                    else if constexpr (std::is_same_v<T, std::string>) {
-                        std::array<char, 256> buffer{};
-                        std::snprintf(buffer.data(), buffer.size(), "%s", value.c_str());
-                        changed = ImGui::InputText(label, buffer.data(), buffer.size());
-                        value = buffer.data();
-                    }
-                    
-                    if (changed) {
-                        property.value = value;
-                        if (property.onChanged) {
-                            property.onChanged(property.value);
-                        }
-                    }
-                },
-                property.value
-            );
         }
     }
 
@@ -159,46 +112,25 @@ namespace tr::UI {
         const float rightPadding = _window.width() - 24.0f;
         const float topPadding = 24.0f;
         const float spacing = 8.0f;
-        float leftY = 0.0f;
-        leftY += topPadding;
-        float rightY = 0.0f;
-        rightY += topPadding;
+        const auto drawSideWindows = [&](const std::vector<UIWindow*>& windows, bool leftSide) {
+            float y = topPadding;
+            for (UIWindow* window : windows) {
+                const float x = leftSide ? leftPadding : rightPadding - window->width;
 
-        for (UIWindow* window : state.windows) {
-            float padding = window->leftSide ? leftPadding : rightPadding - window->width;
-            float& y = window->leftSide ? leftY : rightY;
-
-            ImGui::SetNextWindowPos(ImVec2(padding, y), ImGuiCond_Always);
-            ImGui::SetNextWindowSize(ImVec2(window->width, window->height), ImGuiCond_Always);
-            if (ImGui::Begin(window->name.c_str(), nullptr, panelFlags | window->additionalFlags)) {
-                y += window->height + spacing;
-                for (UIWindow::UILine& line : window->lines) {
-                    std::visit(
-                        [&](auto& value) {
-                            using T = std::decay_t<decltype(value)>;
-
-                            if constexpr (std::is_same_v<T, UISeparator>) {
-                                ImGui::Separator();
-                            }
-                            else if constexpr (std::is_same_v<T, UISameLine>) {
-                                ImGui::SameLine();
-                            }
-                            else if constexpr (std::is_same_v<T, UILabel>) {
-                                ImGui::Text(value.label.c_str());
-                            }
-                            else if constexpr (std::is_same_v<T, UIButton>) {
-                                drawButton(result, value);
-                            }
-                            else if constexpr (std::is_same_v<T, UIProperty>) {
-                                drawProperty(result, value);
-                            }
-                        },
-                        line
-                    );
+                ImGui::SetNextWindowPos(ImVec2(x, y), ImGuiCond_Always);
+                ImGui::SetNextWindowSize(ImVec2(window->width, window->height), ImGuiCond_Always);
+                if (ImGui::Begin(window->name.c_str(), nullptr, panelFlags | window->additionalFlags)) {
+                    if (window->drawCallback) {
+                        window->drawCallback();
+                    }
                 }
+                ImGui::End();
+                y += window->height + spacing;
             }
-            ImGui::End();
-        }
+        };
+
+        drawSideWindows(state.leftWindows, true);
+        drawSideWindows(state.rightWindows, false);
         ImGui::Render();
 
         result.drawData = ImGui::GetDrawData();

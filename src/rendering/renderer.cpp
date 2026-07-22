@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <glm/ext/matrix_clip_space.hpp>
 #include <glm/glm.hpp>
 
 #include "window.h"
@@ -35,13 +36,36 @@ namespace tr::Rendering {
     }
 
     void Renderer::renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene, ImDrawData* uiDrawData) {
+        const float aspect = static_cast<float>(_window.width()) / static_cast<float>(_window.height());
+        glm::mat4 cameraProjection;
+        if (camera.projection == tr::Data::CameraProjection::Perspective) {
+            cameraProjection = glm::perspectiveRH_ZO(
+                glm::radians(camera.fov),
+                aspect,
+                camera.near,
+                camera.far
+            );
+        }
+        else {
+            const float halfHeight = camera.orthographicSize * 0.5f;
+            const float halfWidth = halfHeight * aspect;
+            cameraProjection = glm::orthoRH_ZO(
+                -halfWidth,
+                halfWidth,
+                -halfHeight,
+                halfHeight,
+                camera.near,
+                camera.far
+            );
+        }
+
         float sceneRadius = 2 * std::max(std::max(scene.sceneSize.x, scene.sceneSize.y), scene.sceneSize.z);
         glm::vec3 dir = glm::normalize(scene.directionalLight.direction);
         float padding = sceneRadius;
         glm::vec3 eye = scene.sceneCenter - dir * (sceneRadius + padding);
         glm::vec3 up = glm::abs(dir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
         glm::mat4 lightView = glm::lookAt(eye, scene.sceneCenter, up);
-        glm::mat4 lightProj = glm::ortho(
+        glm::mat4 lightProj = glm::orthoRH_ZO(
             -sceneRadius, sceneRadius,
             -sceneRadius, sceneRadius,
             0.0f, 2.0f * sceneRadius + padding
@@ -50,10 +74,7 @@ namespace tr::Rendering {
 
         SceneData sceneData{
             .view = glm::inverse(camera.transform.getMatrix()),
-            .proj = glm::perspective(
-                glm::radians(camera.fov),
-                static_cast<float>(_window.width()) / static_cast<float>(_window.height()),
-                camera.near, camera.far),
+            .proj = cameraProjection,
             .cameraPos = camera.transform.position,
             .lightIntensity = scene.directionalLight.intensity,
             .lightDirection = scene.directionalLight.direction,

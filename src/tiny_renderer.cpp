@@ -1,16 +1,18 @@
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_ENABLE_EXPERIMENTAL
 
 #include "tiny_renderer.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
 
 #include <fmt/base.h>
-#include <fmt/format.h>
 #include <glm/glm.hpp>
+#include <imgui.h>
 
 #include "application.h"
 #include "camera.h"
@@ -18,6 +20,7 @@
 #include "file_picker.h"
 #include "free_move_controller.h"
 #include "input.h"
+#include "orbit_controller.h"
 #include "pbr.h"
 #include "renderer.h"
 #include "resource_manager.h"
@@ -30,17 +33,13 @@
 
 namespace tr {
     namespace {
+        enum class CameraControllerType {
+            FreeMove,
+            Orbit
+        };
+
         constexpr std::string_view APP_NAME = "tinyrenderer";
         constexpr std::string_view APP_VERSION = "v0.0.1";
-
-        constexpr std::string_view DEBUG_FPS = "DEBUG_FPS";
-        constexpr std::string_view DEBUG_GPU = "DEBUG_GPU";
-
-        constexpr std::string_view MODEL_NAME = "MODEL_NAME";
-        constexpr std::string_view MODEL_LOAD = "MODEL_LOAD";
-        constexpr std::string_view MODEL_LOAD_DEFAULT = "MODEL_LOAD_DEFAULT";
-
-        constexpr std::string_view LIGHT_INTENSITY = "LIGHT_INTENSITY";
     }
 
     struct TinyRenderer::Impl {
@@ -70,7 +69,22 @@ namespace tr {
         UI::UIWindow debugWindow;
         UI::UIWindow modelWindow;
         UI::UIWindow lightWindow;
-        bool showUI = true;
+        UI::UIWindow cameraWindow;
+        std::string gpuName;
+        std::string modelName = "Default Scene";
+        std::size_t sceneVertexCount = 0;
+        std::size_t scenePolygonCount = 0;
+        float lightYaw = 0.0f;
+        float lightPitch = 0.0f;
+        float smoothedDeltaTime = 1.0f / 60.0f;
+        CameraControllerType cameraControllerType = CameraControllerType::FreeMove;
+        float freeMoveSpeed = 5.0f;
+        float freeMoveSensitivity = 0.1f;
+        float orbitMaxRadius = 50.0f;
+        float orbitSensitivity = 0.2f;
+        float orbitZoomSensitivity = 0.75f;
+        bool fpsInitialized = false;
+        bool showUI = false;
 
         Impl() {
             fmt::println(
@@ -86,58 +100,108 @@ namespace tr {
             loadScene(Loading::Loader::loadDefaultScene);
             setupCamera();
 
-            debugWindow.setLabel(DEBUG_GPU, rhi->getDeviceName());
+            gpuName = rhi->getDeviceName();
             syncSceneUI();
         }
 
         void setupUI() {
             debugWindow = UI::UIWindow{
-                .leftSide = false,
                 .name = "Debug",
-                .lines = {
-                    UI::UILabel{std::string(DEBUG_FPS), "FPS: 60"},
-                    UI::UILabel{std::string(DEBUG_GPU), "Some Rendering Device"},
+                .height = 75.0f,
+                .drawCallback = [this]() {
+                    ImGui::Text("FPS: %d", static_cast<int>(1.0f / smoothedDeltaTime));
+                    ImGui::TextUnformatted(gpuName.c_str());
                 },
                 .additionalFlags = ImGuiWindowFlags_NoInputs
             };
 
             modelWindow = UI::UIWindow{
                 .name = "Model",
-                .lines = {
-                    UI::UILabel{std::string(MODEL_NAME), "Default Scene"},
-                    UI::UISeparator{},
-                    UI::UIButton{std::string(MODEL_LOAD), "Load Model"},
-                    UI::UISameLine{},
-                    UI::UIButton{std::string(MODEL_LOAD_DEFAULT), "Load Default Model"},
-                },
-                .additionalFlags = ImGuiWindowFlags_None
+                .height = 135.0f,
+                .drawCallback = [this]() {
+                    if (ImGui::Button("Load Model")) {
+                        loadSelectedModel();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Load Default Model")) {
+                        loadScene(Loading::Loader::loadDefaultScene);
+                        modelName = "Default Scene";
+                        syncSceneUI();
+                    }
+                    ImGui::Separator();
+                    ImGui::TextUnformatted(modelName.c_str());
+                    ImGui::Separator();
+                    const glm::vec3& bounds = currentScene->sceneSize;
+                    ImGui::Text("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
+                    ImGui::Text("Vertices: %zu", sceneVertexCount);
+                    ImGui::Text("Polygons: %zu", scenePolygonCount);
+                }
             };
 
             lightWindow = UI::UIWindow{
                 .name = "Light",
-                .lines = {
-                    UI::UIProperty{
-                        .key = std::string(LIGHT_INTENSITY),
-                        .label = "Intensity",
-                        .value = 1.0f,
-                        .onChanged = [this](const UI::UIValue& intensity) {
-                            currentScene->directionalLight.intensity = std::get<float>(intensity);
-                        }
+                .height = 125.0f,
+                .drawCallback = [this]() {
+                    ImGui::DragFloat(
+                        "Intensity",
+                        &currentScene->directionalLight.intensity,
+                        0.01f
+                    );
+                    ImGui::ColorEdit3("Color", &currentScene->directionalLight.color.x);
+                    if (ImGui::SliderFloat("Yaw", &lightYaw, -180.0f, 180.0f, "%.1f°")) {
+                        updateLightDirection();
                     }
-                },
-                .additionalFlags = ImGuiWindowFlags_None
+                    if (ImGui::SliderFloat("Pitch", &lightPitch, -90.0f, 0.0f, "%.1f°")) {
+                        updateLightDirection();
+                    }
+                }
             };
 
-            modelWindow.get<UI::UIButton>(MODEL_LOAD)->onClick = [this]() {
-                loadSelectedModel();
-            };
-            modelWindow.get<UI::UIButton>(MODEL_LOAD_DEFAULT)->onClick = [this]() {
-                loadScene(Loading::Loader::loadDefaultScene);
-                modelWindow.setLabel(MODEL_NAME, "Default Scene");
-                syncSceneUI();
+            cameraWindow = UI::UIWindow{
+                .name = "Camera",
+                .width = 300.0f,
+                .height = 225.0f,
+                .drawCallback = [this]() {
+                    ImGui::PushItemWidth(160.0f);
+
+                    int controller = static_cast<int>(cameraControllerType);
+                    if (ImGui::Combo("Controller", &controller, "Free Move\0Orbit\0")) {
+                        setCameraController(static_cast<CameraControllerType>(controller));
+                    }
+
+                    if (cameraControllerType == CameraControllerType::FreeMove) {
+                        auto& freeMove = static_cast<Controllers::FreeMoveController&>(*cameraController);
+                        ImGui::DragFloat("Speed", &freeMove.speed, 0.1f, 0.1f, 100.0f);
+                        ImGui::DragFloat("Look Sensitivity", &freeMove.sensitivity, 0.01f, 0.01f, 2.0f);
+                    }
+                    else {
+                        auto& orbit = static_cast<Controllers::OrbitController&>(*cameraController);
+                        ImGui::DragFloat("Max Radius", &orbit.maxRadius, 0.1f, 0.1f, 1000.0f);
+                        ImGui::DragFloat("Orbit Sensitivity", &orbit.sensitivity, 0.01f, 0.01f, 2.0f);
+                        ImGui::DragFloat("Zoom Sensitivity", &orbit.zoomSensitivity, 0.01f, 0.01f, 10.0f);
+                    }
+
+                    ImGui::Separator();
+                    int projection = static_cast<int>(camera.projection);
+                    if (ImGui::Combo("Projection", &projection, "Perspective\0Orthographic\0")) {
+                        camera.projection = static_cast<Data::CameraProjection>(projection);
+                    }
+
+                    if (camera.projection == Data::CameraProjection::Perspective) {
+                        ImGui::SliderFloat("Field of View", &camera.fov, 1.0f, 179.0f, "%.1f deg");
+                    }
+                    else {
+                        ImGui::DragFloat("Size", &camera.orthographicSize, 0.1f, 0.1f, 1000.0f);
+                    }
+                    ImGui::DragFloat("Near", &camera.near, 0.01f, 0.001f, camera.far);
+                    ImGui::DragFloat("Far", &camera.far, 0.1f, camera.near, 10000.0f);
+
+                    ImGui::PopItemWidth();
+                }
             };
 
-            uiState.windows = { &debugWindow, &modelWindow, &lightWindow };
+            uiState.leftWindows = { &modelWindow, &lightWindow };
+            uiState.rightWindows = { &debugWindow, &cameraWindow };
         }
 
         void setupRendering() {
@@ -159,7 +223,38 @@ namespace tr {
             camera.fov = 60;
             camera.near = 0.1f;
             camera.far = 50;
-            cameraController = std::make_unique<Controllers::FreeMoveController>(camera);
+            setCameraController(CameraControllerType::FreeMove);
+        }
+
+        void setCameraController(CameraControllerType type) {
+            if (cameraController) {
+                if (cameraControllerType == CameraControllerType::FreeMove) {
+                    const auto& freeMove = static_cast<const Controllers::FreeMoveController&>(*cameraController);
+                    freeMoveSpeed = freeMove.speed;
+                    freeMoveSensitivity = freeMove.sensitivity;
+                }
+                else {
+                    const auto& orbit = static_cast<const Controllers::OrbitController&>(*cameraController);
+                    orbitMaxRadius = orbit.maxRadius;
+                    orbitSensitivity = orbit.sensitivity;
+                    orbitZoomSensitivity = orbit.zoomSensitivity;
+                }
+            }
+
+            cameraControllerType = type;
+            if (type == CameraControllerType::FreeMove) {
+                auto controller = std::make_unique<Controllers::FreeMoveController>(camera);
+                controller->speed = freeMoveSpeed;
+                controller->sensitivity = freeMoveSensitivity;
+                cameraController = std::move(controller);
+            }
+            else {
+                auto controller = std::make_unique<Controllers::OrbitController>(camera);
+                controller->maxRadius = orbitMaxRadius;
+                controller->sensitivity = orbitSensitivity;
+                controller->zoomSensitivity = orbitZoomSensitivity;
+                cameraController = std::move(controller);
+            }
         }
 
         void loadScene(const SceneFactory& sceneFactory) {
@@ -189,14 +284,31 @@ namespace tr {
                     file->content
                 );
             });
-            modelWindow.setLabel(MODEL_NAME, file->name);
+            modelName = file->name;
             syncSceneUI();
         }
 
         void syncSceneUI() {
-            lightWindow.setProperty(
-                LIGHT_INTENSITY,
-                currentScene->directionalLight.intensity
+            const glm::vec3 direction = glm::normalize(currentScene->directionalLight.direction);
+            lightYaw = glm::degrees(std::atan2(direction.x, direction.z));
+            lightPitch = glm::degrees(std::asin(std::clamp(direction.y, -1.0f, 1.0f)));
+
+            sceneVertexCount = 0;
+            scenePolygonCount = 0;
+            for (auto entry : resourceManager.meshesPool) {
+                const Data::Mesh* mesh = entry.second;
+                sceneVertexCount += mesh->vertices.size();
+                scenePolygonCount += mesh->indices.size() / 3;
+            }
+        }
+
+        void updateLightDirection() {
+            const float yaw = glm::radians(lightYaw);
+            const float pitch = glm::radians(lightPitch);
+            currentScene->directionalLight.direction = glm::vec3(
+                std::cos(pitch) * std::sin(yaw),
+                std::sin(pitch),
+                std::cos(pitch) * std::cos(yaw)
             );
         }
 
@@ -216,12 +328,16 @@ namespace tr {
                 input.beginFrame();
                 window.pollEvents();
 
-                debugWindow.setLabel(
-                    DEBUG_FPS,
-                    fmt::format("FPS: {}", static_cast<int>(1.0f / window.deltaTime()))
-                );
+                const float deltaTime = window.deltaTime();
+                if (fpsInitialized) {
+                    const float smoothing = 1.0f - std::exp(-deltaTime / 0.25f);
+                    smoothedDeltaTime += (deltaTime - smoothedDeltaTime) * smoothing;
+                }
+                else {
+                    fpsInitialized = true;
+                }
 
-                if (input.isKeyJustPressed(App::Key::F1)) {
+                if (input.isKeyJustPressed(App::Key::F3)) {
                     showUI = !showUI;
                 }
 

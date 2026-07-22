@@ -36,7 +36,10 @@ namespace tr::Controllers {
 
         bool dirty = false;
 
-        if (input.isMouseButtonDown(tr::App::MouseButton::Middle)) {
+        if (input.isMouseButtonDown(tr::App::MouseButton::Left) ||
+            input.isMouseButtonDown(tr::App::MouseButton::Middle) ||
+            input.isMouseButtonDown(tr::App::MouseButton::Right)
+        ) {
             _yaw -= delta.x * sensitivity;
             _pitch = std::clamp(_pitch + delta.y * sensitivity, -89.0f, 89.0f);
             dirty = true;
