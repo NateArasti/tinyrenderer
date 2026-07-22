@@ -8,29 +8,29 @@
 #include "scene_data.h"
 
 namespace tr::Rendering {
-    Renderer::Renderer(RHI* rhi, tr::Data::ResourceManager* resourceManager, tr::App::Window* window)
-        : _renderingInterface(rhi), _resourceManager(resourceManager), _window(window)
+    Renderer::Renderer(RHI& rhi, tr::Data::ResourceManager& resourceManager, tr::App::Window& window)
+        : _window(window), _renderingInterface(rhi), _resourceManager(resourceManager)
     {
     }
 
     void Renderer::clearState() {
-        _renderingInterface->clearResources();
+        _renderingInterface.clearResources();
     }
 
     void Renderer::reloadResources() {
         clearState();
-        for (auto [handle, shader] : _resourceManager->shadersPool) {
-            _renderingInterface->createShader(handle, *shader);
+        for (auto [handle, shader] : _resourceManager.shadersPool) {
+            _renderingInterface.createShader(handle, *shader);
         }
-        for (auto [handle, texture] : _resourceManager->texturesPool) {
-            _renderingInterface->createTexture(handle, *texture);
+        for (auto [handle, texture] : _resourceManager.texturesPool) {
+            _renderingInterface.createTexture(handle, *texture);
         }
-        for (auto [handle, material] : _resourceManager->materialsPool) {
-            auto* shader = _resourceManager->shadersPool.get(material->shader);
-            _renderingInterface->createMaterial(handle, *material, *shader);
+        for (auto [handle, material] : _resourceManager.materialsPool) {
+            auto* shader = _resourceManager.shadersPool.get(material->shader);
+            _renderingInterface.createMaterial(handle, *material, *shader);
         }
-        for (auto [handle, mesh] : _resourceManager->meshesPool) {
-            _renderingInterface->createMesh(handle, *mesh);
+        for (auto [handle, mesh] : _resourceManager.meshesPool) {
+            _renderingInterface.createMesh(handle, *mesh);
         }
     }
 
@@ -52,7 +52,7 @@ namespace tr::Rendering {
             .view = glm::inverse(camera.transform.getMatrix()),
             .proj = glm::perspective(
                 glm::radians(camera.fov),
-                static_cast<float>(_window->width()) / static_cast<float>(_window->height()),
+                static_cast<float>(_window.width()) / static_cast<float>(_window.height()),
                 camera.near, camera.far),
             .cameraPos = camera.transform.position,
             .lightIntensity = scene.directionalLight.intensity,
@@ -60,7 +60,7 @@ namespace tr::Rendering {
             .lightColor = scene.directionalLight.color,
             .lightViewProj = lightViewProj,
         };
-        _renderingInterface->startFrame(sceneData);
+        _renderingInterface.startFrame(sceneData);
 
         auto cameraPosition = camera.transform.position;
         _opaqueDrawQueue.clear();
@@ -79,9 +79,9 @@ namespace tr::Rendering {
 
             bool isOpaque = true;
             for (const auto& materialHandle : object->materials) {
-                auto* material = _resourceManager->materialsPool.get(materialHandle);
+                auto* material = _resourceManager.materialsPool.get(materialHandle);
                 if (!material) continue;
-                auto* shader = _resourceManager->shadersPool.get(material->shader);
+                auto* shader = _resourceManager.shadersPool.get(material->shader);
                 if (shader && shader->blendMode == tr::Data::BlendMode::Transparent) {
                     isOpaque = false;
                     break;
@@ -102,23 +102,23 @@ namespace tr::Rendering {
             }
         );
 
-        _renderingInterface->startShadowPass();
+        _renderingInterface.startShadowPass();
         for (const auto& command : _opaqueDrawQueue) {
-            _renderingInterface->drawShadows(command); // dedicated simplified rendering
+            _renderingInterface.drawShadows(command); // dedicated simplified rendering
         }
-        _renderingInterface->endShadowPass();
+        _renderingInterface.endShadowPass();
 
-        _renderingInterface->startColorPass();
+        _renderingInterface.startColorPass();
         for (const auto& command : _opaqueDrawQueue) {
-            _renderingInterface->draw(command);
+            _renderingInterface.draw(command);
         }
         for (const auto& [command, depth] : _transparentDrawQueue) {
-            _renderingInterface->draw(command);
+            _renderingInterface.draw(command);
         }
-        _renderingInterface->endColorPass();
+        _renderingInterface.endColorPass();
 
-        _renderingInterface->drawUI(uiDrawData);
+        _renderingInterface.drawUI(uiDrawData);
 
-        _renderingInterface->endFrame();
+        _renderingInterface.endFrame();
     }
 }

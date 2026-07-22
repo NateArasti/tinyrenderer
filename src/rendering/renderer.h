@@ -14,14 +14,14 @@
 namespace tr::Rendering {
     class Renderer {
     private:
-        tr::App::Window* _window = nullptr;
-        RHI* _renderingInterface = nullptr;
-        tr::Data::ResourceManager* _resourceManager = nullptr;
+        tr::App::Window& _window;
+        RHI& _renderingInterface;
+        tr::Data::ResourceManager& _resourceManager;
         std::vector<DrawCommand> _opaqueDrawQueue;
         std::vector<std::pair<DrawCommand, float>> _transparentDrawQueue;
         
     public:
-        explicit Renderer(RHI* rhi, tr::Data::ResourceManager* resourceManager, tr::App::Window* window);
+        explicit Renderer(RHI& rhi, tr::Data::ResourceManager& resourceManager, tr::App::Window& window);
         ~Renderer() = default;
 
         Renderer(const Renderer&) = delete;
