@@ -19,7 +19,8 @@ namespace tr::Rendering::Vulkan {
     class VulkanRenderer : public RHI {
     private:
         static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-        static constexpr uint32_t MAX_MATERIALS = 32;
+        static constexpr uint32_t MAX_MATERIALS = 256;
+        static constexpr uint32_t MAX_TEXTURES_PER_MATERIAL = 8;
         static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
 
         const std::vector<const char*> _requiredDeviceExtension = {

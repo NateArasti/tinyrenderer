@@ -1,9 +1,7 @@
 #pragma once
 
-#include <cstddef>
+#include <filesystem>
 #include <memory>
-#include <span>
-#include <string_view>
 
 #include "handle.h"
 #include "scene.h"
@@ -14,17 +12,18 @@ namespace tr::Data {
 }
 
 namespace tr::Loading {
+    struct LoadContext {
+        Data::ResourceManager& resourceManager;
+        Resources::Handle<Data::Shader> baseOpaqueShader;
+        Resources::Handle<Data::Shader> baseTransparentShader;
+    };
+
     class Loader {
     public:
-        static std::unique_ptr<tr::Data::Scene> loadDefaultScene(
-            tr::Data::ResourceManager& resourceManager,
-            tr::Resources::Handle<tr::Data::Shader> baseShader
-        );
-
+        static std::unique_ptr<tr::Data::Scene> loadDefaultScene(LoadContext ctx);
         static std::unique_ptr<tr::Data::Scene> loadModel(
-            tr::Data::ResourceManager& resourceManager,
-            tr::Resources::Handle<tr::Data::Shader> baseShader,
-            std::span<const std::byte> content
+            LoadContext ctx,
+            const std::filesystem::path& path
         );
     };
 }

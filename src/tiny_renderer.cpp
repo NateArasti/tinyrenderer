@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -43,10 +44,7 @@ namespace tr {
     }
 
     struct TinyRenderer::Impl {
-        using SceneFactory = std::function<std::unique_ptr<Data::Scene>(
-            Data::ResourceManager&,
-            Resources::Handle<Data::Shader>
-        )>;
+        using SceneFactory = std::function<std::unique_ptr<Data::Scene>(Loading::LoadContext)>;
 
         App::Application application{
             .name = APP_NAME,
@@ -65,6 +63,8 @@ namespace tr {
         Data::Camera camera;
         std::unique_ptr<Controllers::CameraController> cameraController;
 
+        Data::Light directionalLight;
+
         UI::UIState uiState;
         UI::UIWindow debugWindow;
         UI::UIWindow modelWindow;
@@ -78,7 +78,7 @@ namespace tr {
         float lightPitch = 0.0f;
         float smoothedDeltaTime = 1.0f / 60.0f;
         CameraControllerType cameraControllerType = CameraControllerType::FreeMove;
-        float freeMoveSpeed = 5.0f;
+        float freeMoveSpeed = 10.0f;
         float freeMoveSensitivity = 0.1f;
         float orbitMaxRadius = 50.0f;
         float orbitSensitivity = 0.2f;
@@ -99,6 +99,7 @@ namespace tr {
             setupRendering();
             loadScene(Loading::Loader::loadDefaultScene);
             setupCamera();
+            setupLight();
 
             gpuName = rhi->getDeviceName();
             syncSceneUI();
@@ -117,7 +118,7 @@ namespace tr {
 
             modelWindow = UI::UIWindow{
                 .name = "Model",
-                .height = 135.0f,
+                .height = 160.0f,
                 .drawCallback = [this]() {
                     if (ImGui::Button("Load Model")) {
                         loadSelectedModel();
@@ -131,7 +132,9 @@ namespace tr {
                     ImGui::Separator();
                     ImGui::TextUnformatted(modelName.c_str());
                     ImGui::Separator();
-                    const glm::vec3& bounds = currentScene->sceneSize;
+                    ImGui::DragFloat("Scale", &currentScene->scale, 0.01f, 0.001f, 1000.0f, "%.3f");
+                    currentScene->scale = std::max(currentScene->scale, 0.001f);
+                    const glm::vec3 bounds = currentScene->sceneSize * currentScene->scale;
                     ImGui::Text("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
                     ImGui::Text("Vertices: %zu", sceneVertexCount);
                     ImGui::Text("Polygons: %zu", scenePolygonCount);
@@ -144,10 +147,10 @@ namespace tr {
                 .drawCallback = [this]() {
                     ImGui::DragFloat(
                         "Intensity",
-                        &currentScene->directionalLight.intensity,
+                        &directionalLight.intensity,
                         0.01f
                     );
-                    ImGui::ColorEdit3("Color", &currentScene->directionalLight.color.x);
+                    ImGui::ColorEdit3("Color", &directionalLight.color.x);
                     if (ImGui::SliderFloat("Yaw", &lightYaw, -180.0f, 180.0f, "%.1f°")) {
                         updateLightDirection();
                     }
@@ -222,8 +225,16 @@ namespace tr {
             camera.transform.eulerAngles = glm::vec3(-45.0f, -45.0f, 0.0f);
             camera.fov = 60;
             camera.near = 0.1f;
-            camera.far = 50;
+            camera.far = 150;
             setCameraController(CameraControllerType::FreeMove);
+        }
+
+        void setupLight() {
+            directionalLight = {
+                .direction = glm::vec3(0.5f, -1.0f, 0.5f),
+                .intensity = 5.0f,
+                .color = glm::vec4(1.0f)
+            };
         }
 
         void setCameraController(CameraControllerType type) {
@@ -259,37 +270,41 @@ namespace tr {
 
         void loadScene(const SceneFactory& sceneFactory) {
             resourceManager.clear();
-            const auto baseShader = resourceManager.shadersPool.add(
+            const auto baseOpaqueShader = resourceManager.shadersPool.add(
                 std::make_unique<Data::EmbeddedShaders::Pbr>()
             );
-            currentScene = sceneFactory(resourceManager, baseShader);
+            const auto baseTransparentShader = resourceManager.shadersPool.add(
+                std::make_unique<Data::EmbeddedShaders::Pbr>()
+            );
+            resourceManager.shadersPool.get(baseTransparentShader)->blendMode = tr::Data::BlendMode::Transparent;
+            currentScene = sceneFactory(Loading::LoadContext{
+                .resourceManager = resourceManager,
+                .baseOpaqueShader = baseOpaqueShader,
+                .baseTransparentShader = baseTransparentShader,
+            });
             renderer->reloadResources();
         }
 
         void loadSelectedModel() {
             auto filePicker = App::createFilePicker();
             filePicker->requestModelFile();
-            auto file = filePicker->pollResult();
+            auto path = filePicker->pollResult();
 
-            if (!file) {
-                fmt::println("Didn't load any file");
+            if (!path) {
+                fmt::println("No file was selected");
                 return;
             }
 
-            fmt::println("Loading file {}", file->name);
-            loadScene([&file](Data::ResourceManager& resources, Resources::Handle<Data::Shader> shader) {
-                return Loading::Loader::loadModel(
-                    resources,
-                    shader,
-                    file->content
-                );
+            fmt::println("Loading file {}", path->string());
+            loadScene([&path](Loading::LoadContext ctx) {
+                return Loading::Loader::loadModel(ctx, *path);
             });
-            modelName = file->name;
+            modelName = path->filename().string();
             syncSceneUI();
         }
 
         void syncSceneUI() {
-            const glm::vec3 direction = glm::normalize(currentScene->directionalLight.direction);
+            const glm::vec3 direction = glm::normalize(directionalLight.direction);
             lightYaw = glm::degrees(std::atan2(direction.x, direction.z));
             lightPitch = glm::degrees(std::asin(std::clamp(direction.y, -1.0f, 1.0f)));
 
@@ -305,7 +320,7 @@ namespace tr {
         void updateLightDirection() {
             const float yaw = glm::radians(lightYaw);
             const float pitch = glm::radians(lightPitch);
-            currentScene->directionalLight.direction = glm::vec3(
+            directionalLight.direction = glm::vec3(
                 std::cos(pitch) * std::sin(yaw),
                 std::sin(pitch),
                 std::cos(pitch) * std::cos(yaw)
@@ -357,7 +372,7 @@ namespace tr {
                 }
 
                 if (window.width() != 0 && window.height() != 0) {
-                    renderer->renderScene(camera, *currentScene, uiDrawData);
+                    renderer->render(*currentScene, camera, directionalLight, uiDrawData);
                 }
             }
 

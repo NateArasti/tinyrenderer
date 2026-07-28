@@ -12,7 +12,7 @@ namespace tr::Controllers {
         bool _captured = false;
 
     public:
-        float speed = 5.0f;
+        float speed = 15.0f;
         float sensitivity = 0.1f;
 
         explicit FreeMoveController(tr::Data::Camera& camera);

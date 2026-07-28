@@ -18,16 +18,31 @@ struct PushConstants {
 struct UniformParams {
     float4 diffuseColor = float4(1, 1, 1, 1);
     float4 ambientColor;
+    float4 emissionColor;
     float4 specularColor;
     float metallicFactor = 0;
     float roughnessFactor = 1;
+    float normalScale = 1;
+    float hasDiffuseMap = 0;
+    float hasEmissionMap = 0;
+    float hasNormalMap = 0;
+    float hasMetallicMap = 0;
+    float hasRoughnessMap = 0;
+    float hasSpecularMap = 0;
+    float hasOpacityMap = 0;
 };
 
 [[vk::push_constant]] PushConstants pcs;
 [[vk::binding(0, 0)]] ConstantBuffer<SceneData> sceneData;
 [[vk::binding(1, 0)]] Sampler2D shadowMap;
 [[vk::binding(0, 1)]] ConstantBuffer<UniformParams> params;
-[[vk::binding(1, 1)]] Sampler2D albedo;
+[[vk::binding(1, 1)]] Sampler2D diffuseMap;
+[[vk::binding(2, 1)]] Sampler2D emissionMap;
+[[vk::binding(3, 1)]] Sampler2D normalMap;
+[[vk::binding(4, 1)]] Sampler2D metallicMap;
+[[vk::binding(5, 1)]] Sampler2D roughnessMap;
+[[vk::binding(6, 1)]] Sampler2D specularMap;
+[[vk::binding(7, 1)]] Sampler2D opacityMap;
 
 struct VSInput {
     float3 position : POSITION;
@@ -74,6 +89,30 @@ float calculateSoftShadow(float4 shadowCoord, float NdotL) {
     return shadow / 9.0;
 }
 
+float3 applyNormalMap(float3 normal, float3 worldPos, float2 uv) {
+    float3 positionDx = ddx(worldPos);
+    float3 positionDy = ddy(worldPos);
+    float2 uvDx = ddx(uv);
+    float2 uvDy = ddy(uv);
+
+    float3 tangent = positionDy * uvDx.y - positionDx * uvDy.y;
+    float3 bitangent = positionDx * uvDy.x - positionDy * uvDx.x;
+    float maxLength = max(dot(tangent, tangent), dot(bitangent, bitangent));
+    if (maxLength <= 0.0) {
+        return normal;
+    }
+
+    float inverseLength = rsqrt(maxLength);
+    float3 tangentNormal = normalMap.Sample(uv).xyz * 2.0 - 1.0;
+    tangentNormal.xy *= params.normalScale;
+    float3x3 tangentBasis = float3x3(
+        tangent * inverseLength,
+        bitangent * inverseLength,
+        normal
+    );
+    return normalize(mul(tangentNormal, tangentBasis));
+}
+
 [shader("vertex")]
 VSOutput vertMain(VSInput input) {
     VSOutput output;
@@ -89,10 +128,19 @@ VSOutput vertMain(VSInput input) {
 }
 
 [shader("fragment")]
-float4 fragMain(VSOutput vertIn, bool isFrontFace : SV_IsFrontFace) : SV_TARGET {
-    float4 baseColor = albedo.Sample(vertIn.uv) * vertIn.color * params.diffuseColor;
+float4 fragMain(VSOutput vertIn) : SV_TARGET {
+    float4 baseColor = vertIn.color * params.diffuseColor;
+    if (params.hasDiffuseMap > 0.5) {
+        baseColor *= diffuseMap.Sample(vertIn.uv);
+    }
+    if (params.hasOpacityMap > 0.5) {
+        baseColor.a *= opacityMap.Sample(vertIn.uv).r;
+    }
 
     float3 N = normalize(vertIn.normal);
+    if (params.hasNormalMap > 0.5) {
+        N = applyNormalMap(N, vertIn.worldPos, vertIn.uv);
+    }
     float3 V = normalize(sceneData.cameraPos - vertIn.worldPos);
     float3 R = reflect(-V, N);
     
@@ -104,11 +152,26 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace : SV_IsFrontFace) : SV_TARGET 
     float NdotH = max(dot(N, H), 0.0);
     float cosTheta = max(dot(H, V), 0.0);
 
-    float3 F0 = float3(0.04);
-    F0 = lerp(F0, baseColor.rgb, params.metallicFactor);
+    float metallic = params.metallicFactor;
+    if (params.hasMetallicMap > 0.5) {
+        metallic *= metallicMap.Sample(vertIn.uv).r;
+    }
+    metallic = saturate(metallic);
 
-    float D = DistributionGGX(NdotH, params.roughnessFactor);
-    float G = GeometrySmith(NdotV, NdotL, params.roughnessFactor);
+    float roughness = params.roughnessFactor;
+    if (params.hasRoughnessMap > 0.5) {
+        roughness *= roughnessMap.Sample(vertIn.uv).r;
+    }
+    roughness = clamp(roughness, 0.04, 1.0);
+
+    float3 F0 = params.specularColor.rgb;
+    if (params.hasSpecularMap > 0.5) {
+        F0 = specularMap.Sample(vertIn.uv).rgb;
+    }
+    F0 = lerp(F0, baseColor.rgb, metallic);
+
+    float D = DistributionGGX(NdotH, roughness);
+    float G = GeometrySmith(NdotV, NdotL, roughness);
     float3 F = FresnelSchlick(cosTheta, F0);
 
     float3 numerator = D * G * F;
@@ -117,9 +180,9 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace : SV_IsFrontFace) : SV_TARGET 
 
     float3 kS = F;
     float3 kD = float3(1.0) - kS;
-    kD *= 1.0 - params.metallicFactor;
+    kD *= 1.0 - metallic;
 
-    float shadow = isFrontFace && NdotL > 0.0
+    float shadow = NdotL > 0.0
         ? calculateSoftShadow(mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1)), NdotL)
         : 1.0;
 
@@ -127,7 +190,11 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace : SV_IsFrontFace) : SV_TARGET 
     float3 Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL * shadow;
 
     float3 ambient = params.ambientColor.rgb * baseColor.rgb;
-    float3 color = ambient + Lo;
+    float3 emission = params.emissionColor.rgb;
+    if (params.hasEmissionMap > 0.5) {
+        emission *= emissionMap.Sample(vertIn.uv).rgb;
+    }
+    float3 color = ambient + Lo + emission;
 
     // HDR Tonemapping (Reinhard) and Gamma Correction
     color = color / (color + float3(1.0));

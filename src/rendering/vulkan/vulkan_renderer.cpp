@@ -1107,8 +1107,14 @@ namespace tr::Rendering::Vulkan {
 
 	void VulkanRenderer::createDescriptorPool() {
 		std::array poolSize {
-		    vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT),
-            vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, MAX_MATERIALS + MAX_FRAMES_IN_FLIGHT)
+		    vk::DescriptorPoolSize(
+                vk::DescriptorType::eUniformBuffer,
+                MAX_FRAMES_IN_FLIGHT + MAX_MATERIALS
+            ),
+            vk::DescriptorPoolSize(
+                vk::DescriptorType::eCombinedImageSampler,
+                MAX_MATERIALS * MAX_TEXTURES_PER_MATERIAL + MAX_FRAMES_IN_FLIGHT
+            )
         };
         vk::DescriptorPoolCreateInfo poolInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
@@ -1433,6 +1439,9 @@ namespace tr::Rendering::Vulkan {
         const tr::Data::Texture& texture
     ) {
 		vk::DeviceSize imageSize = texture.width * texture.height * texture.channels;
+        const vk::Format imageFormat = texture.colorSpace == Data::TextureColorSpace::SRGB
+            ? vk::Format::eR8G8B8A8Srgb
+            : vk::Format::eR8G8B8A8Unorm;
         auto [stagingBuffer, stagingBufferMemory] = createBuffer(
             imageSize,
             vk::BufferUsageFlagBits::eTransferSrc,
@@ -1451,7 +1460,7 @@ namespace tr::Rendering::Vulkan {
 
         std::tie(result.textureImage, result.textureImageMemory) = createImage(
             texture.width, texture.height,
-            vk::Format::eR8G8B8A8Srgb,
+            imageFormat,
             result.mipLevels,
             vk::SampleCountFlagBits::e1,
             vk::ImageTiling::eOptimal,
@@ -1472,14 +1481,14 @@ namespace tr::Rendering::Vulkan {
 
         generateMipmaps(
             result.textureImage,
-            vk::Format::eR8G8B8A8Srgb,
+            imageFormat,
             texture.width, texture.height,
             result.mipLevels
         );
 
         result.textureImageView = createImageView(
             result.textureImage,
-            vk::Format::eR8G8B8A8Srgb,
+            imageFormat,
             vk::ImageAspectFlagBits::eColor,
             result.mipLevels
         );
@@ -1556,8 +1565,16 @@ namespace tr::Rendering::Vulkan {
             }
         ).front());
 
+        const size_t textureCount = std::ranges::count_if(
+            shader.params,
+            [&shader](const Data::ShaderParamDesc& desc) {
+                return shader.isTextureParam(desc.defaultValue);
+            }
+        );
         std::vector<vk::DescriptorImageInfo> imageInfos;
+        imageInfos.reserve(textureCount);
         std::vector<vk::WriteDescriptorSet> writes;
+        writes.reserve(textureCount + 1);
 
         vk::DescriptorBufferInfo bufferInfo{
             .buffer = *result.paramsBuffer,

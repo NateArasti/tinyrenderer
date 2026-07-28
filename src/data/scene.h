@@ -12,9 +12,9 @@ namespace tr::Data {
         std::vector<std::unique_ptr<GameObject>> _objects;
         
     public:
-        Light directionalLight;
-        glm::vec3 sceneCenter;
-        glm::vec3 sceneSize;
+        glm::vec3 sceneCenter = glm::vec3(0.0f);
+        glm::vec3 sceneSize = glm::vec3(0.0f);
+        float scale = 1.0f;
 
         Scene() = default;
         ~Scene() = default;

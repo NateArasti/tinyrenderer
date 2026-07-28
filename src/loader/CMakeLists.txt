@@ -15,5 +15,11 @@ target_link_libraries(loader
         resources
 )
 
+find_package(fmt REQUIRED)
+target_link_libraries(loader PRIVATE fmt::fmt)
+
 find_package(Stb REQUIRED)
-target_include_directories(tinyrenderer PRIVATE ${Stb_INCLUDE_DIR})
+target_include_directories(loader PRIVATE ${Stb_INCLUDE_DIR})
+
+find_package(rapidobj CONFIG REQUIRED)
+target_link_libraries(loader PRIVATE rapidobj::rapidobj)

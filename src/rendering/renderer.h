@@ -31,6 +31,11 @@ namespace tr::Rendering {
 
         void reloadResources();
         void clearState();
-        void renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene, ImDrawData* uiDrawData);
+        void render(
+            const tr::Data::Scene& scene,
+            const tr::Data::Camera& camera,
+            const tr::Data::Light& light,
+            ImDrawData* uiDrawData
+        );
     };
 }

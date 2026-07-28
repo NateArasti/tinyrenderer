@@ -4,6 +4,7 @@
 
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include "window.h"
 #include "scene_data.h"
@@ -35,7 +36,12 @@ namespace tr::Rendering {
         }
     }
 
-    void Renderer::renderScene(const tr::Data::Camera& camera, const tr::Data::Scene& scene, ImDrawData* uiDrawData) {
+    void Renderer::render(
+        const tr::Data::Scene& scene,
+        const tr::Data::Camera& camera,
+        const tr::Data::Light& light,
+        ImDrawData* uiDrawData
+    ) {
         const float aspect = static_cast<float>(_window.width()) / static_cast<float>(_window.height());
         glm::mat4 cameraProjection;
         if (camera.projection == tr::Data::CameraProjection::Perspective) {
@@ -59,12 +65,15 @@ namespace tr::Rendering {
             );
         }
 
-        float sceneRadius = 2 * std::max(std::max(scene.sceneSize.x, scene.sceneSize.y), scene.sceneSize.z);
-        glm::vec3 dir = glm::normalize(scene.directionalLight.direction);
+        const glm::mat4 sceneTransform = glm::scale(glm::mat4(1.0f), glm::vec3(scene.scale));
+        const glm::vec3 scaledSceneCenter = scene.sceneCenter * scene.scale;
+        const glm::vec3 scaledSceneSize = scene.sceneSize * glm::abs(scene.scale);
+        float sceneRadius = 2 * std::max(std::max(scaledSceneSize.x, scaledSceneSize.y), scaledSceneSize.z);
+        glm::vec3 dir = glm::normalize(light.direction);
         float padding = sceneRadius;
-        glm::vec3 eye = scene.sceneCenter - dir * (sceneRadius + padding);
+        glm::vec3 eye = scaledSceneCenter - dir * (sceneRadius + padding);
         glm::vec3 up = glm::abs(dir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-        glm::mat4 lightView = glm::lookAt(eye, scene.sceneCenter, up);
+        glm::mat4 lightView = glm::lookAt(eye, scaledSceneCenter, up);
         glm::mat4 lightProj = glm::orthoRH_ZO(
             -sceneRadius, sceneRadius,
             -sceneRadius, sceneRadius,
@@ -76,9 +85,9 @@ namespace tr::Rendering {
             .view = glm::inverse(camera.transform.getMatrix()),
             .proj = cameraProjection,
             .cameraPos = camera.transform.position,
-            .lightIntensity = scene.directionalLight.intensity,
-            .lightDirection = scene.directionalLight.direction,
-            .lightColor = scene.directionalLight.color,
+            .lightIntensity = light.intensity,
+            .lightDirection = light.direction,
+            .lightColor = light.color,
             .lightViewProj = lightViewProj,
         };
         _renderingInterface.startFrame(sceneData);
@@ -93,7 +102,7 @@ namespace tr::Rendering {
             }
 
             DrawCommand command {
-                .modelMatrix = object->transform.getMatrix(),
+                .modelMatrix = sceneTransform * object->transform.getMatrix(),
                 .mesh = object->mesh,
                 .materials = std::span<const tr::Resources::Handle<tr::Data::Material>>(object->materials)
             };

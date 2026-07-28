@@ -10,6 +10,8 @@
 #include "mesh.h"
 #include "resource_manager.h"
 
+#include "obj_importer.h"
+
 namespace tr::Loading {
     namespace {
         using namespace tr::Data;
@@ -113,29 +115,15 @@ namespace tr::Loading {
             scene.sceneCenter = (min + max) * 0.5f;
             scene.sceneSize = max - min;
         }
-
-        std::unique_ptr<Scene> createEmptyScene() {
-            auto scene = std::make_unique<Scene>();
-            scene->directionalLight = {
-                .direction = glm::vec3(0.5f, -1.0f, 0.5f),
-                .intensity = 1.0f,
-                .color = glm::vec4(1.0f)
-            };
-            scene->sceneCenter = glm::vec3(0.0f);
-            scene->sceneSize = glm::vec3(0.0f);
-            return scene;
-        }
     }
 
-    std::unique_ptr<Data::Scene> Loader::loadDefaultScene(
-        Data::ResourceManager& resourceManager,
-        Resources::Handle<Data::Shader> baseShader
-    ) {
-        auto scene = createEmptyScene();
-        const auto cubeMaterial = createCubeMaterial(resourceManager, baseShader);
-        const auto floorMaterial = createPlaneMaterial(resourceManager, baseShader);
-        const auto cubeMesh = createCubeMesh(resourceManager);
-        const auto planeMesh = createPlaneMesh(resourceManager);
+    std::unique_ptr<Data::Scene> Loader::loadDefaultScene(LoadContext ctx) {
+        auto scene = std::make_unique<Scene>();
+
+        const auto cubeMaterial = createCubeMaterial(ctx.resourceManager, ctx.baseOpaqueShader);
+        const auto floorMaterial = createPlaneMaterial(ctx.resourceManager, ctx.baseOpaqueShader);
+        const auto cubeMesh = createCubeMesh(ctx.resourceManager);
+        const auto planeMesh = createPlaneMesh(ctx.resourceManager);
 
         auto cube = std::make_unique<Data::GameObject>();
         cube->mesh = cubeMesh;
@@ -151,15 +139,23 @@ namespace tr::Loading {
         plane->transform.scale = glm::vec3(5.0f);
         scene->getObjects().push_back(std::move(plane));
 
-        calculateBounds(*scene, resourceManager);
+        calculateBounds(*scene, ctx.resourceManager);
         return scene;
     }
 
     std::unique_ptr<Data::Scene> Loader::loadModel(
-        Data::ResourceManager& resourceManager,
-        Resources::Handle<Data::Shader> baseShader,
-        std::span<const std::byte> content
+        LoadContext ctx,
+        const std::filesystem::path& path
     ) {
-        return createEmptyScene();
+        std::vector<std::unique_ptr<Importer>> importers;
+        importers.push_back(std::make_unique<OBJImporter>());
+
+        auto scene = std::make_unique<Scene>();
+        for (const auto& importer : importers) {
+            importer->load(*scene, ctx, path);
+        }
+        calculateBounds(*scene, ctx.resourceManager);
+
+        return scene;
     }
 }
