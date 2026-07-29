@@ -11,6 +11,7 @@
 #include "resource_manager.h"
 
 #include "gltf_importer.h"
+#include "fbx_importer.h"
 #include "obj_importer.h"
 
 namespace tr::Loading {
@@ -151,6 +152,7 @@ namespace tr::Loading {
         std::vector<std::unique_ptr<Importer>> importers;
         importers.push_back(std::make_unique<OBJImporter>());
         importers.push_back(std::make_unique<GLTFImporter>());
+        importers.push_back(std::make_unique<FBXImporter>());
 
         auto scene = std::make_unique<Scene>();
         for (const auto& importer : importers) {

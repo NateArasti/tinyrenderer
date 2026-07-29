@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 4.3.1)
 project(
     tinyrenderer 
     VERSION 1.0 
-    LANGUAGES CXX)
+    LANGUAGES C CXX
+)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +19,8 @@ if(WIN32)
         WIN32_EXECUTABLE "$<$<CONFIG:Release>:TRUE>"
     )
 endif()
+
+add_subdirectory(third-party/ufbx)
 
 add_subdirectory(src/app)
 add_subdirectory(src/resources)

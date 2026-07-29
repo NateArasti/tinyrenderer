@@ -26,3 +26,5 @@ target_link_libraries(loader PRIVATE rapidobj::rapidobj)
 
 find_package(fastgltf CONFIG REQUIRED)
 target_link_libraries(loader PRIVATE fastgltf::fastgltf)
+
+target_link_libraries(loader PRIVATE ufbx)
