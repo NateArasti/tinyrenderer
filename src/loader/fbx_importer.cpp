@@ -24,6 +24,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "resource_manager.h"
+#include "transform.h"
 
 namespace tr::Loading {
     namespace {
@@ -66,6 +67,14 @@ namespace tr::Loading {
                 static_cast<float>(source.z),
                 static_cast<float>(source.w)
             };
+        }
+
+        glm::mat4 toGlm(const ufbx_matrix& source) {
+            glm::mat4 result(1.0f);
+            for (size_t column = 0; column < 4; ++column) {
+                result[column] = glm::vec4(toGlm(source.cols[column]), column == 3 ? 1.0f : 0.0f);
+            }
+            return result;
         }
 
         std::vector<std::byte> readFile(const std::filesystem::path& path) {
@@ -338,98 +347,86 @@ namespace tr::Loading {
             return result;
         }
 
-        void createObject(
-            Scene& scene,
+        struct ImportedMesh {
+            Handle<Mesh> mesh;
+            std::vector<uint32_t> materialSlots;
+        };
+
+        ImportedMesh createMesh(
             LoadContext& context,
-            const ufbx_node& node,
-            const std::unordered_map<const ufbx_material*, Handle<Material>>& materials,
-            Handle<Material> defaultMaterial
+            const ufbx_mesh& source
         ) {
-            const ufbx_mesh* source = node.mesh;
-            if (!source || source->num_triangles == 0 || !source->vertex_position.exists) {
-                return;
+            if (source.num_triangles == 0 || !source.vertex_position.exists) {
+                return {};
             }
 
             auto mesh = std::make_unique<Mesh>();
-            mesh->name = toString(source->name);
-            auto object = std::make_unique<GameObject>();
-            object->name = toString(node.name);
-            if (object->name.empty()) {
-                object->name = mesh->name;
-            }
+            mesh->name = toString(source.name);
+            std::vector<uint32_t> materialSlots;
 
             std::vector<Mesh::Vertex> flatVertices;
-            flatVertices.reserve(source->num_triangles * 3);
-            std::vector<uint32_t> triangleIndices(source->max_face_triangles * 3);
-            const ufbx_matrix normalMatrix = ufbx_get_compatible_matrix_for_normals(&node);
-            const bool mirrored = ufbx_matrix_determinant(&node.geometry_to_world) < 0.0;
+            flatVertices.reserve(source.num_triangles * 3);
+            std::vector<uint32_t> triangleIndices(source.max_face_triangles * 3);
 
             std::vector<uint32_t> partOrder;
-            if (source->material_part_usage_order.count > 0) {
+            if (source.material_part_usage_order.count > 0) {
                 partOrder.assign(
-                    source->material_part_usage_order.data,
-                    source->material_part_usage_order.data + source->material_part_usage_order.count
+                    source.material_part_usage_order.data,
+                    source.material_part_usage_order.data + source.material_part_usage_order.count
                 );
             }
             else {
-                partOrder.resize(source->material_parts.count);
+                partOrder.resize(source.material_parts.count);
                 for (size_t index = 0; index < partOrder.size(); ++index) {
                     partOrder[index] = static_cast<uint32_t>(index);
                 }
             }
 
             for (uint32_t partIndex : partOrder) {
-                if (partIndex >= source->material_parts.count) {
+                if (partIndex >= source.material_parts.count) {
                     continue;
                 }
-                const ufbx_mesh_part& part = source->material_parts.data[partIndex];
+                const ufbx_mesh_part& part = source.material_parts.data[partIndex];
                 const size_t subMeshBegin = flatVertices.size();
 
                 for (uint32_t faceIndex : part.face_indices) {
-                    if (faceIndex >= source->faces.count) {
+                    if (faceIndex >= source.faces.count) {
                         continue;
                     }
-                    const ufbx_face face = source->faces.data[faceIndex];
+                    const ufbx_face face = source.faces.data[faceIndex];
                     const uint32_t numTriangles = ufbx_triangulate_face(
                         triangleIndices.data(),
                         triangleIndices.size(),
-                        source,
+                        &source,
                         face
                     );
                     for (uint32_t triangle = 0; triangle < numTriangles; ++triangle) {
-                        uint32_t corners[3] = {
+                        const uint32_t corners[3] = {
                             triangleIndices[triangle * 3],
                             triangleIndices[triangle * 3 + 1],
                             triangleIndices[triangle * 3 + 2]
                         };
-                        if (mirrored) {
-                            std::swap(corners[1], corners[2]);
-                        }
                         for (uint32_t corner : corners) {
                             Mesh::Vertex vertex{};
-                            const ufbx_vec3 sourcePosition =
-                                ufbx_get_vertex_vec3(&source->vertex_position, corner);
                             vertex.position = toGlm(
-                                ufbx_transform_position(&node.geometry_to_world, sourcePosition)
+                                ufbx_get_vertex_vec3(&source.vertex_position, corner)
                             );
-                            if (source->vertex_normal.exists) {
-                                const ufbx_vec3 sourceNormal =
-                                    ufbx_get_vertex_vec3(&source->vertex_normal, corner);
-                                vertex.normal = glm::normalize(toGlm(
-                                    ufbx_transform_direction(&normalMatrix, sourceNormal)
-                                ));
+                            if (source.vertex_normal.exists) {
+                                vertex.normal = toGlm(
+                                    ufbx_get_vertex_vec3(&source.vertex_normal, corner)
+                                );
                             }
-                            if (source->vertex_uv.exists) {
+                            if (source.vertex_uv.exists) {
                                 const ufbx_vec2 uv =
-                                    ufbx_get_vertex_vec2(&source->vertex_uv, corner);
+                                    ufbx_get_vertex_vec2(&source.vertex_uv, corner);
                                 vertex.uv = {
                                     static_cast<float>(uv.x),
                                     static_cast<float>(uv.y)
                                 };
                             }
-                            if (source->vertex_color.exists) {
+                            if (source.vertex_color.exists) {
                                 vertex.color = toGlm(
-                                    ufbx_get_vertex_vec4(&source->vertex_color, corner)
+                                    ufbx_get_vertex_vec4(&source.vertex_color, corner)
                                 );
                             }
                             flatVertices.push_back(vertex);
@@ -442,20 +439,12 @@ namespace tr::Loading {
                     continue;
                 }
                 mesh->subMeshData.push_back(static_cast<uint32_t>(subMeshSize));
-                if (partIndex < node.materials.count) {
-                    const auto found = materials.find(node.materials.data[partIndex]);
-                    object->materials.push_back(
-                        found != materials.end() ? found->second : defaultMaterial
-                    );
-                }
-                else {
-                    object->materials.push_back(defaultMaterial);
-                }
+                materialSlots.push_back(partIndex);
             }
 
             if (flatVertices.empty()
                 || flatVertices.size() > std::numeric_limits<uint32_t>::max()) {
-                return;
+                return {};
             }
 
             mesh->indices.resize(flatVertices.size());
@@ -477,13 +466,15 @@ namespace tr::Loading {
                 char description[512]{};
                 ufbx_format_error(description, sizeof(description), &indexError);
                 fmt::println("Couldn't index FBX mesh {}: {}", mesh->name, description);
-                return;
+                return {};
             }
             flatVertices.resize(numVertices);
             mesh->vertices = std::move(flatVertices);
 
-            object->mesh = context.resourceManager.meshesPool.add(std::move(mesh));
-            scene.getObjects().push_back(std::move(object));
+            return {
+                context.resourceManager.meshesPool.add(std::move(mesh)),
+                std::move(materialSlots)
+            };
         }
 
         void loadFbx(
@@ -526,8 +517,43 @@ namespace tr::Loading {
                 *sourceScene
             );
             const auto defaultMaterial = createDefaultMaterial(context);
+            std::unordered_map<const ufbx_mesh*, ImportedMesh> meshes;
+            meshes.reserve(sourceScene->meshes.count);
+            for (const ufbx_mesh* sourceMesh : sourceScene->meshes) {
+                meshes.emplace(sourceMesh, createMesh(context, *sourceMesh));
+            }
             for (const ufbx_node* node : sourceScene->nodes) {
-                createObject(scene, context, *node, materials, defaultMaterial);
+                if (!node->mesh) {
+                    continue;
+                }
+                const auto foundMesh = meshes.find(node->mesh);
+                if (foundMesh == meshes.end() || !foundMesh->second.mesh.isValid()) {
+                    continue;
+                }
+
+                auto object = std::make_unique<GameObject>();
+                object->name = toString(node->name);
+                if (object->name.empty()) {
+                    object->name = toString(node->mesh->name);
+                }
+                object->mesh = foundMesh->second.mesh;
+                object->transform = Transform::fromTransform(toGlm(node->geometry_to_world));
+                for (uint32_t materialSlot : foundMesh->second.materialSlots) {
+                    if (materialSlot < node->materials.count) {
+                        const auto foundMaterial = materials.find(
+                            node->materials.data[materialSlot]
+                        );
+                        object->materials.push_back(
+                            foundMaterial != materials.end()
+                                ? foundMaterial->second
+                                : defaultMaterial
+                        );
+                    }
+                    else {
+                        object->materials.push_back(defaultMaterial);
+                    }
+                }
+                scene.getObjects().push_back(std::move(object));
             }
         }
     }

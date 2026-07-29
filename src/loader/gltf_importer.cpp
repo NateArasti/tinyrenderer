@@ -24,6 +24,7 @@
 #include "material.h"
 #include "mesh.h"
 #include "resource_manager.h"
+#include "transform.h"
 
 namespace tr::Loading {
     namespace {
@@ -352,29 +353,21 @@ namespace tr::Loading {
             return triangles;
         }
 
-        void createObject(
-            Scene& scene,
+        struct ImportedMesh {
+            Handle<Mesh> mesh;
+            std::vector<Handle<Material>> materials;
+        };
+
+        ImportedMesh createMesh(
             LoadContext& context,
             const fastgltf::Asset& asset,
-            const fastgltf::Node& node,
-            const glm::mat4& worldTransform,
+            const fastgltf::Mesh& sourceMesh,
             const std::vector<Handle<Material>>& materials,
             Handle<Material> defaultMaterial
         ) {
-            if (!node.meshIndex || *node.meshIndex >= asset.meshes.size()) {
-                return;
-            }
-
-            const auto& sourceMesh = asset.meshes[*node.meshIndex];
             auto mesh = std::make_unique<Mesh>();
-            mesh->name = sourceMesh.name.empty() ? std::string(node.name) : std::string(sourceMesh.name);
-            auto object = std::make_unique<GameObject>();
-            object->name = node.name.empty() ? mesh->name : std::string(node.name);
-            const glm::mat3 linearTransform(worldTransform);
-            const glm::mat3 normalTransform =
-                std::abs(glm::determinant(linearTransform)) > 1e-8f
-                ? glm::transpose(glm::inverse(linearTransform))
-                : linearTransform;
+            mesh->name = std::string(sourceMesh.name);
+            std::vector<Handle<Material>> meshMaterials;
             bool hasGeometry = false;
 
             for (const auto& primitive : sourceMesh.primitives) {
@@ -401,9 +394,9 @@ namespace tr::Loading {
                     primitive,
                     "POSITION",
                     [&](const auto& value, size_t index) {
-                        mesh->vertices[vertexOffset + index].position = glm::vec3(
-                            worldTransform * glm::vec4(value[0], value[1], value[2], 1.0f)
-                        );
+                        mesh->vertices[vertexOffset + index].position = {
+                            value[0], value[1], value[2]
+                        };
                     }
                 );
                 readVectorAttribute<fastgltf::math::fvec3>(
@@ -412,9 +405,9 @@ namespace tr::Loading {
                     "NORMAL",
                     [&](const auto& value, size_t index) {
                         if (index < positionAccessor.count) {
-                            mesh->vertices[vertexOffset + index].normal = glm::normalize(
-                                normalTransform * glm::vec3(value[0], value[1], value[2])
-                            );
+                            mesh->vertices[vertexOffset + index].normal = {
+                                value[0], value[1], value[2]
+                            };
                             hasNormals = true;
                         }
                     }
@@ -499,10 +492,10 @@ namespace tr::Loading {
                 );
                 mesh->subMeshData.push_back(static_cast<uint32_t>(primitiveIndices.size()));
                 if (primitive.materialIndex && *primitive.materialIndex < materials.size()) {
-                    object->materials.push_back(materials[*primitive.materialIndex]);
+                    meshMaterials.push_back(materials[*primitive.materialIndex]);
                 }
                 else {
-                    object->materials.push_back(defaultMaterial);
+                    meshMaterials.push_back(defaultMaterial);
                 }
                 hasGeometry = true;
 
@@ -522,10 +515,13 @@ namespace tr::Loading {
                 }
             }
 
-            if (hasGeometry) {
-                object->mesh = context.resourceManager.meshesPool.add(std::move(mesh));
-                scene.getObjects().push_back(std::move(object));
+            if (!hasGeometry) {
+                return {};
             }
+            return {
+                context.resourceManager.meshesPool.add(std::move(mesh)),
+                std::move(meshMaterials)
+            };
         }
 
         void loadGltf(
@@ -561,6 +557,16 @@ namespace tr::Loading {
             auto asset = std::move(loaded.get());
             const auto materials = createMaterials(context, asset);
             const auto defaultMaterial = createDefaultMaterial(context);
+            std::vector<ImportedMesh> meshes(asset.meshes.size());
+            for (size_t meshIndex = 0; meshIndex < asset.meshes.size(); ++meshIndex) {
+                meshes[meshIndex] = createMesh(
+                    context,
+                    asset,
+                    asset.meshes[meshIndex],
+                    materials,
+                    defaultMaterial
+                );
+            }
             const auto visitNode = [&](
                 size_t nodeIndex,
                 const fastgltf::math::fmat4x4& parent,
@@ -571,15 +577,19 @@ namespace tr::Loading {
                 }
                 const auto& node = asset.nodes[nodeIndex];
                 const auto transform = fastgltf::getTransformMatrix(node, parent);
-                createObject(
-                    scene,
-                    context,
-                    asset,
-                    node,
-                    toGlm(transform),
-                    materials,
-                    defaultMaterial
-                );
+                if (node.meshIndex && *node.meshIndex < meshes.size()) {
+                    const auto& importedMesh = meshes[*node.meshIndex];
+                    if (importedMesh.mesh.isValid()) {
+                        auto object = std::make_unique<GameObject>();
+                        object->name = node.name.empty()
+                            ? std::string(asset.meshes[*node.meshIndex].name)
+                            : std::string(node.name);
+                        object->mesh = importedMesh.mesh;
+                        object->materials = importedMesh.materials;
+                        object->transform = Transform::fromTransform(toGlm(transform));
+                        scene.getObjects().push_back(std::move(object));
+                    }
+                }
                 for (size_t child : node.children) {
                     self(child, transform, self);
                 }

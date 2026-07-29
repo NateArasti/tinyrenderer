@@ -18,5 +18,35 @@ namespace tr::Data {
             model = glm::scale(model, scale);
             return model;
         }
+
+        static Transform fromTransform(const glm::mat4& matrix) {
+            Transform result;
+            glm::quat orientation;
+            glm::vec3 skew;
+            glm::vec4 perspective;
+            if (!glm::decompose(
+                matrix,
+                result.scale,
+                orientation,
+                result.position,
+                skew,
+                perspective
+            )) {
+                result.position = glm::vec3(matrix[3]);
+                return result;
+            }
+
+            float yaw = 0.0f;
+            float pitch = 0.0f;
+            float roll = 0.0f;
+            glm::extractEulerAngleYXZ(
+                glm::mat4_cast(orientation),
+                yaw,
+                pitch,
+                roll
+            );
+            result.eulerAngles = glm::degrees(glm::vec3(pitch, yaw, roll));
+            return result;
+        }
     };
 }
