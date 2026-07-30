@@ -8,7 +8,7 @@
 
 namespace tr::Rendering::Vulkan {
     struct VulkanTexture {
-        tr::Resources::Handle<tr::Data::Texture> source;
+        tr::Resources::Handle<tr::Data::Texture> handle;
         uint32_t mipLevels;
         vk::raii::Image textureImage = nullptr;
         vk::raii::DeviceMemory textureImageMemory = nullptr;

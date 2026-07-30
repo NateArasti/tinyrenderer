@@ -13,6 +13,7 @@ target_link_libraries(loader
     PUBLIC
         data
         resources
+        rendering
 )
 
 find_package(fmt REQUIRED)

@@ -31,24 +31,20 @@ namespace tr::Rendering {
         RHI& operator=(RHI&&) = delete;
 
         virtual std::string getDeviceName() const = 0;
-        virtual void clearResources() = 0;
         virtual void resize(uint32_t width, uint32_t height) = 0;
 
         virtual void createShadowShader(const tr::Data::Shader& shader) = 0;
+        virtual void createBaseShaders(tr::Data::Shader& referenceShader) = 0;
 
-        virtual void createShader(
-            tr::Resources::Handle<tr::Data::Shader> handle,
-            const tr::Data::Shader& shader) = 0;
-        virtual void createTexture(
-            tr::Resources::Handle<tr::Data::Texture> handle,
-            const tr::Data::Texture& texture) = 0;
-        virtual void createMaterial(
+        virtual tr::Resources::Handle<tr::Data::Mesh> createMesh(const tr::Data::Mesh& mesh) = 0;
+        virtual tr::Resources::Handle<tr::Data::Texture> createTexture(const tr::Data::Texture& texture) = 0;
+
+        virtual void registerMaterial(
             tr::Resources::Handle<tr::Data::Material> handle,
-            const tr::Data::Material& material,
-            const tr::Data::Shader& shader) = 0;
-        virtual void createMesh(
-            tr::Resources::Handle<tr::Data::Mesh> handle,
-            const tr::Data::Mesh& mesh) = 0;
+            const tr::Data::Material& material
+        ) = 0;
+
+        virtual void clearResources() = 0;
 
         virtual void startFrame(const tr::Rendering::SceneData& sceneData) = 0;
         virtual void startShadowPass() = 0;

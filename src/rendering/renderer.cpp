@@ -10,30 +10,11 @@
 #include "scene_data.h"
 
 namespace tr::Rendering {
-    Renderer::Renderer(RHI& rhi, tr::Data::ResourceManager& resourceManager, tr::App::Window& window)
-        : _window(window), _renderingInterface(rhi), _resourceManager(resourceManager)
-    {
-    }
+    Renderer::Renderer(RHI& rhi, tr::App::Window& window)
+        : _window(window), _renderingInterface(rhi) { }
 
     void Renderer::clearState() {
         _renderingInterface.clearResources();
-    }
-
-    void Renderer::reloadResources() {
-        clearState();
-        for (auto [handle, shader] : _resourceManager.shadersPool) {
-            _renderingInterface.createShader(handle, *shader);
-        }
-        for (auto [handle, texture] : _resourceManager.texturesPool) {
-            _renderingInterface.createTexture(handle, *texture);
-        }
-        for (auto [handle, material] : _resourceManager.materialsPool) {
-            auto* shader = _resourceManager.shadersPool.get(material->shader);
-            _renderingInterface.createMaterial(handle, *material, *shader);
-        }
-        for (auto [handle, mesh] : _resourceManager.meshesPool) {
-            _renderingInterface.createMesh(handle, *mesh);
-        }
     }
 
     void Renderer::render(
@@ -65,9 +46,11 @@ namespace tr::Rendering {
             );
         }
 
+        auto [sceneCenter, sceneSize] = scene.getSceneBounds();
+
         const glm::mat4 sceneTransform = glm::scale(glm::mat4(1.0f), glm::vec3(scene.scale));
-        const glm::vec3 scaledSceneCenter = scene.sceneCenter * scene.scale;
-        const glm::vec3 scaledSceneSize = scene.sceneSize * glm::abs(scene.scale);
+        const glm::vec3 scaledSceneCenter = sceneCenter * scene.scale;
+        const glm::vec3 scaledSceneSize = sceneSize * glm::abs(scene.scale);
         float sceneRadius = 2 * std::max(std::max(scaledSceneSize.x, scaledSceneSize.y), scaledSceneSize.z);
         glm::vec3 dir = glm::normalize(light.direction);
         float padding = sceneRadius;
@@ -109,10 +92,8 @@ namespace tr::Rendering {
 
             bool isOpaque = true;
             for (const auto& materialHandle : object->materials) {
-                auto* material = _resourceManager.materialsPool.get(materialHandle);
-                if (!material) continue;
-                auto* shader = _resourceManager.shadersPool.get(material->shader);
-                if (shader && shader->blendMode == tr::Data::BlendMode::Transparent) {
+                const auto* material = scene.materials.get(materialHandle);
+                if (material && material->blendMode == tr::Data::BlendMode::Transparent) {
                     isOpaque = false;
                     break;
                 }

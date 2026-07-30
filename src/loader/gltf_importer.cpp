@@ -23,7 +23,7 @@
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"
-#include "resource_manager.h"
+#include "rhi.h"
 #include "transform.h"
 
 namespace tr::Loading {
@@ -82,7 +82,7 @@ namespace tr::Loading {
         }
 
         Handle<Texture> loadTexture(
-            ResourceManager& resourceManager,
+            LoadContext& context,
             const fastgltf::Asset& asset,
             size_t textureIndex,
             TextureColorSpace colorSpace,
@@ -135,42 +135,45 @@ namespace tr::Loading {
             }
 
             const size_t pixelDataSize = static_cast<size_t>(width) * static_cast<size_t>(height) * STBI_rgb_alpha;
-            auto texture = std::make_unique<Texture>();
-            texture->name = sourceImage.name.empty()
+            Texture texture;
+            texture.name = sourceImage.name.empty()
                 ? "image_" + std::to_string(*imageIndex)
                 : std::string(sourceImage.name);
-            texture->width = static_cast<uint32_t>(width);
-            texture->height = static_cast<uint32_t>(height);
-            texture->channels = STBI_rgb_alpha;
-            texture->colorSpace = colorSpace;
-            texture->pixels.assign(decoded, decoded + pixelDataSize);
+            texture.width = static_cast<uint32_t>(width);
+            texture.height = static_cast<uint32_t>(height);
+            texture.channels = STBI_rgb_alpha;
+            texture.colorSpace = colorSpace;
+            texture.pixels.assign(decoded, decoded + pixelDataSize);
             stbi_image_free(decoded);
 
             if (channel != TextureChannel::All) {
                 const size_t sourceChannel = channel == TextureChannel::Green ? 1 : 2;
                 for (size_t pixel = 0; pixel < pixelDataSize; pixel += STBI_rgb_alpha) {
-                    const uint8_t value = texture->pixels[pixel + sourceChannel];
-                    texture->pixels[pixel] = value;
-                    texture->pixels[pixel + 1] = value;
-                    texture->pixels[pixel + 2] = value;
+                    const uint8_t value = texture.pixels[pixel + sourceChannel];
+                    texture.pixels[pixel] = value;
+                    texture.pixels[pixel + 1] = value;
+                    texture.pixels[pixel + 2] = value;
                 }
             }
 
-            const auto handle = resourceManager.texturesPool.add(std::move(texture));
+            const auto handle = context.renderingInterface.createTexture(texture);
             cache.emplace(cacheKey, handle);
             return handle;
         }
 
-        Handle<Material> createDefaultMaterial(LoadContext& context) {
-            auto material = std::make_unique<Material>(context.baseOpaqueShader);
+        Handle<Material> createDefaultMaterial(Scene& scene, LoadContext& context) {
+            auto material = std::make_unique<Material>();
             material->name = "default";
             material->set("diffuseColor", glm::vec4(1.0f));
             material->set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
             material->set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
-            return context.resourceManager.materialsPool.add(std::move(material));
+            const auto handle = scene.materials.add(std::move(material));
+            context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            return handle;
         }
 
         std::vector<Handle<Material>> createMaterials(
+            Scene& scene,
             LoadContext& context,
             const fastgltf::Asset& asset
         ) {
@@ -179,11 +182,10 @@ namespace tr::Loading {
             std::unordered_map<std::string, Handle<Texture>> textureCache;
 
             for (const auto& source : asset.materials) {
-                const bool transparent = source.alphaMode != fastgltf::AlphaMode::Opaque;
-                auto material = std::make_unique<Material>(
-                    transparent ? context.baseTransparentShader : context.baseOpaqueShader
-                );
+                auto material = std::make_unique<Material>();
                 material->name = std::string(source.name);
+                material->blendMode = source.alphaMode == fastgltf::AlphaMode::Opaque
+                    ? BlendMode::Opaque : BlendMode::Transparent;
 
                 const auto& base = source.pbrData.baseColorFactor;
                 material->set("diffuseColor", glm::vec4(base[0], base[1], base[2], base[3]));
@@ -209,7 +211,7 @@ namespace tr::Loading {
                     TextureChannel channel = TextureChannel::All
                 ) {
                     const auto texture = loadTexture(
-                        context.resourceManager,
+                        context,
                         asset,
                         textureIndex,
                         colorSpace,
@@ -265,7 +267,9 @@ namespace tr::Loading {
                     );
                 }
 
-                result.push_back(context.resourceManager.materialsPool.add(std::move(material)));
+                const auto handle = scene.materials.add(std::move(material));
+                context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+                result.push_back(handle);
             }
             return result;
         }
@@ -356,17 +360,19 @@ namespace tr::Loading {
         struct ImportedMesh {
             Handle<Mesh> mesh;
             std::vector<Handle<Material>> materials;
+            MeshBounds bounds;
         };
 
         ImportedMesh createMesh(
+            Scene& scene,
             LoadContext& context,
             const fastgltf::Asset& asset,
             const fastgltf::Mesh& sourceMesh,
             const std::vector<Handle<Material>>& materials,
             Handle<Material> defaultMaterial
         ) {
-            auto mesh = std::make_unique<Mesh>();
-            mesh->name = std::string(sourceMesh.name);
+            Mesh mesh;
+            mesh.name = std::string(sourceMesh.name);
             std::vector<Handle<Material>> meshMaterials;
             bool hasGeometry = false;
 
@@ -380,13 +386,13 @@ namespace tr::Loading {
                 const auto& positionAccessor = asset.accessors[positionAttribute->accessorIndex];
                 if (positionAccessor.count == 0 ||
                     positionAccessor.count > std::numeric_limits<uint32_t>::max() ||
-                    mesh->vertices.size() > std::numeric_limits<uint32_t>::max() - positionAccessor.count
+                    mesh.vertices.size() > std::numeric_limits<uint32_t>::max() - positionAccessor.count
                 ) {
                     continue;
                 }
 
-                const uint32_t vertexOffset = static_cast<uint32_t>(mesh->vertices.size());
-                mesh->vertices.resize(mesh->vertices.size() + positionAccessor.count);
+                const uint32_t vertexOffset = static_cast<uint32_t>(mesh.vertices.size());
+                mesh.vertices.resize(mesh.vertices.size() + positionAccessor.count);
                 bool hasNormals = false;
 
                 readVectorAttribute<fastgltf::math::fvec3>(
@@ -394,7 +400,7 @@ namespace tr::Loading {
                     primitive,
                     "POSITION",
                     [&](const auto& value, size_t index) {
-                        mesh->vertices[vertexOffset + index].position = {
+                        mesh.vertices[vertexOffset + index].position = {
                             value[0], value[1], value[2]
                         };
                     }
@@ -405,7 +411,7 @@ namespace tr::Loading {
                     "NORMAL",
                     [&](const auto& value, size_t index) {
                         if (index < positionAccessor.count) {
-                            mesh->vertices[vertexOffset + index].normal = {
+                            mesh.vertices[vertexOffset + index].normal = {
                                 value[0], value[1], value[2]
                             };
                             hasNormals = true;
@@ -418,7 +424,7 @@ namespace tr::Loading {
                     "TEXCOORD_0",
                     [&](const auto& value, size_t index) {
                         if (index < positionAccessor.count) {
-                            mesh->vertices[vertexOffset + index].uv = { value[0], value[1] };
+                            mesh.vertices[vertexOffset + index].uv = { value[0], value[1] };
                         }
                     }
                 );
@@ -433,7 +439,7 @@ namespace tr::Loading {
                             colorAccessor,
                             [&](const auto& value, size_t index) {
                                 if (index < positionAccessor.count) {
-                                    mesh->vertices[vertexOffset + index].color = {
+                                    mesh.vertices[vertexOffset + index].color = {
                                         value[0], value[1], value[2], 1.0f
                                     };
                                 }
@@ -446,7 +452,7 @@ namespace tr::Loading {
                             colorAccessor,
                             [&](const auto& value, size_t index) {
                                 if (index < positionAccessor.count) {
-                                    mesh->vertices[vertexOffset + index].color = {
+                                    mesh.vertices[vertexOffset + index].color = {
                                         value[0], value[1], value[2], value[3]
                                     };
                                 }
@@ -479,18 +485,18 @@ namespace tr::Loading {
                 }
                 primitiveIndices = std::move(validIndices);
                 if (primitiveIndices.empty()) {
-                    mesh->vertices.resize(vertexOffset);
+                    mesh.vertices.resize(vertexOffset);
                     continue;
                 }
                 for (uint32_t& index : primitiveIndices) {
                     index += vertexOffset;
                 }
-                mesh->indices.insert(
-                    mesh->indices.end(),
+                mesh.indices.insert(
+                    mesh.indices.end(),
                     primitiveIndices.begin(),
                     primitiveIndices.end()
                 );
-                mesh->subMeshData.push_back(static_cast<uint32_t>(primitiveIndices.size()));
+                mesh.subMeshData.push_back(static_cast<uint32_t>(primitiveIndices.size()));
                 if (primitive.materialIndex && *primitive.materialIndex < materials.size()) {
                     meshMaterials.push_back(materials[*primitive.materialIndex]);
                 }
@@ -500,17 +506,17 @@ namespace tr::Loading {
                 hasGeometry = true;
 
                 if (!hasNormals) {
-                    const size_t firstIndex = mesh->indices.size() - primitiveIndices.size();
-                    for (size_t index = firstIndex; index < mesh->indices.size(); index += 3) {
-                        const uint32_t i0 = mesh->indices[index];
-                        const uint32_t i1 = mesh->indices[index + 1];
-                        const uint32_t i2 = mesh->indices[index + 2];
-                        const glm::vec3 edgeA = mesh->vertices[i1].position - mesh->vertices[i0].position;
-                        const glm::vec3 edgeB = mesh->vertices[i2].position - mesh->vertices[i0].position;
+                    const size_t firstIndex = mesh.indices.size() - primitiveIndices.size();
+                    for (size_t index = firstIndex; index < mesh.indices.size(); index += 3) {
+                        const uint32_t i0 = mesh.indices[index];
+                        const uint32_t i1 = mesh.indices[index + 1];
+                        const uint32_t i2 = mesh.indices[index + 2];
+                        const glm::vec3 edgeA = mesh.vertices[i1].position - mesh.vertices[i0].position;
+                        const glm::vec3 edgeB = mesh.vertices[i2].position - mesh.vertices[i0].position;
                         const glm::vec3 normal = glm::normalize(glm::cross(edgeA, edgeB));
-                        mesh->vertices[i0].normal = normal;
-                        mesh->vertices[i1].normal = normal;
-                        mesh->vertices[i2].normal = normal;
+                        mesh.vertices[i0].normal = normal;
+                        mesh.vertices[i1].normal = normal;
+                        mesh.vertices[i2].normal = normal;
                     }
                 }
             }
@@ -518,9 +524,11 @@ namespace tr::Loading {
             if (!hasGeometry) {
                 return {};
             }
+            const auto bounds = scene.registerMesh(mesh);
             return {
-                context.resourceManager.meshesPool.add(std::move(mesh)),
-                std::move(meshMaterials)
+                context.renderingInterface.createMesh(mesh),
+                std::move(meshMaterials),
+                bounds
             };
         }
 
@@ -555,11 +563,12 @@ namespace tr::Loading {
             }
 
             auto asset = std::move(loaded.get());
-            const auto materials = createMaterials(context, asset);
-            const auto defaultMaterial = createDefaultMaterial(context);
+            const auto materials = createMaterials(scene, context, asset);
+            const auto defaultMaterial = createDefaultMaterial(scene, context);
             std::vector<ImportedMesh> meshes(asset.meshes.size());
             for (size_t meshIndex = 0; meshIndex < asset.meshes.size(); ++meshIndex) {
                 meshes[meshIndex] = createMesh(
+                    scene,
                     context,
                     asset,
                     asset.meshes[meshIndex],
@@ -587,6 +596,7 @@ namespace tr::Loading {
                         object->mesh = importedMesh.mesh;
                         object->materials = importedMesh.materials;
                         object->transform = Transform::fromTransform(toGlm(transform));
+                        scene.includeBounds(importedMesh.bounds, object->transform.getMatrix());
                         scene.getObjects().push_back(std::move(object));
                     }
                 }

@@ -62,10 +62,13 @@ namespace tr::Rendering::Vulkan {
 
     void VulkanRenderer::clearResources() {
         _device.waitIdle();
-        
-        _shadersMap.clear();
+
+        _texturesMap.clear();
         _materialsMap.clear();
         _meshesMap.clear();
+        _resourceGeneration++;
+        _textureIdx = 0;
+        _meshesIdx = 0;
     }
 
     void VulkanRenderer::resize(uint32_t width, uint32_t height) {
@@ -664,7 +667,20 @@ namespace tr::Rendering::Vulkan {
 
     void VulkanRenderer::pickPhysicalDevice() {
         std::vector<vk::raii::PhysicalDevice> physicalDevices = _instance.enumeratePhysicalDevices();
+
         for (const auto& physicalDevice : physicalDevices) {
+            if (physicalDevice.getProperties().deviceType == vk::PhysicalDeviceType::eDiscreteGpu &&
+                isDeviceSuitable(physicalDevice, _surface, _requiredDeviceExtension)) {
+                _physicalDevice = physicalDevice;
+                break;
+            }
+        }
+
+        for (const auto& physicalDevice : physicalDevices) {
+            if (_physicalDevice != nullptr) {
+                break;
+            }
+
             if (isDeviceSuitable(physicalDevice, _surface, _requiredDeviceExtension)) {
                 _physicalDevice = physicalDevice;
                 break;
@@ -1200,12 +1216,24 @@ namespace tr::Rendering::Vulkan {
 
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             _imageAvailableSemaphores[i] = vk::raii::Semaphore(_device, semaphoreInfo);
-            _renderFinishedSemaphores[i] = vk::raii::Semaphore(_device, semaphoreInfo);
             _inFlightFences[i] = vk::raii::Fence(_device, fenceInfo);
+        }
+
+        createRenderFinishedSemaphores();
+    }
+
+    void VulkanRenderer::createRenderFinishedSemaphores() {
+        _renderFinishedSemaphores.clear();
+        _renderFinishedSemaphores.reserve(_swapchainImages.size());
+
+        vk::SemaphoreCreateInfo semaphoreInfo{};
+        for (size_t i = 0; i < _swapchainImages.size(); i++) {
+            _renderFinishedSemaphores.emplace_back(_device, semaphoreInfo);
         }
     }
 
     void VulkanRenderer::cleanupSwapchain() {
+        _renderFinishedSemaphores.clear();
         _swapchainImageViews.clear();
         _swapchainImages.clear();
         _swapchain = nullptr;
@@ -1221,6 +1249,7 @@ namespace tr::Rendering::Vulkan {
         ImGui_ImplVulkan_Shutdown();
         cleanupSwapchain();
         createSwapchain();
+        createRenderFinishedSemaphores();
         createImageViews();
         createColorResources();
         createDepthResources();
@@ -1231,11 +1260,8 @@ namespace tr::Rendering::Vulkan {
 #pragma endregion
     
 #pragma region Resources
-    
-    void VulkanRenderer::createShader(
-        tr::Resources::Handle<tr::Data::Shader> handle,
-        const tr::Data::Shader& shader
-    ) {
+
+    VulkanShader VulkanRenderer::createShader(const tr::Data::Shader& shader, const tr::Data::BlendMode blendMode) {
         const auto& code = shader.getCode();
         vk::ShaderModuleCreateInfo createInfo{
             .codeSize = code.size() * sizeof(char),
@@ -1306,7 +1332,7 @@ namespace tr::Rendering::Vulkan {
 
         vk::PipelineColorBlendAttachmentState colorBlendAttachment;
         vk::PipelineDepthStencilStateCreateInfo depthStencil;
-        if (shader.blendMode == Data::BlendMode::Transparent) {
+        if (blendMode == Data::BlendMode::Transparent) {
             colorBlendAttachment = {
                 .blendEnable = vk::True,
                 .srcColorBlendFactor = vk::BlendFactor::eSrcAlpha,
@@ -1426,18 +1452,21 @@ namespace tr::Rendering::Vulkan {
 
         vk::raii::Pipeline graphicsPipeline = vk::raii::Pipeline(_device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
 
-        _shadersMap[handle] = {
-            handle,
-            std::move(pipelineLayout),
-            std::move(graphicsPipeline),
-            std::move(shaderDescriptorSetLayout)
-        };
+        return std::move(VulkanShader{
+            .pipelineLayout = std::move(pipelineLayout),
+            .graphicsPipeline = std::move(graphicsPipeline),
+            .descriptorSetLayout = std::move(shaderDescriptorSetLayout)
+        });
+    }
+
+    void VulkanRenderer::createBaseShaders(tr::Data::Shader& referenceShader) {
+        _opaqueShader = createShader(referenceShader, tr::Data::BlendMode::Opaque);
+        _opaqueShader.source = &referenceShader;
+        _transparentShader = createShader(referenceShader, tr::Data::BlendMode::Transparent);
+        _transparentShader.source = &referenceShader;
     }
     
-    void VulkanRenderer::createTexture(
-        tr::Resources::Handle<tr::Data::Texture> handle,
-        const tr::Data::Texture& texture
-    ) {
+    tr::Resources::Handle<tr::Data::Texture> VulkanRenderer::createTexture(const tr::Data::Texture& texture) {
 		vk::DeviceSize imageSize = texture.width * texture.height * texture.channels;
         const vk::Format imageFormat = texture.colorSpace == Data::TextureColorSpace::SRGB
             ? vk::Format::eR8G8B8A8Srgb
@@ -1452,7 +1481,9 @@ namespace tr::Rendering::Vulkan {
 		memcpy(data, texture.pixels.data(), imageSize);
         stagingBufferMemory.unmapMemory();
         
-        VulkanTexture result;
+        VulkanTexture result{
+            .handle = { _textureIdx++, _resourceGeneration }
+        };
 
         result.mipLevels = static_cast<uint32_t>(
                 std::floor(std::log2(std::max(texture.width, texture.height)))
@@ -1510,125 +1541,13 @@ namespace tr::Rendering::Vulkan {
         };
         result.textureSampler = vk::raii::Sampler(_device, samplerInfo);
 
-        _texturesMap[handle] = std::move(result);
+        _texturesMap[result.handle] = std::move(result);
+        return result.handle;
     }
     
-    void VulkanRenderer::createMaterial(
-        tr::Resources::Handle<tr::Data::Material> handle,
-        const tr::Data::Material& material,
-        const tr::Data::Shader& shader
-    ) {
-        VulkanMaterial result{
-            .source = handle,
-            .shader = material.shader,
-        };
-        auto& vulkanShader = _shadersMap[result.shader];
-
-        std::vector<uint8_t> uboData;
-        for (const auto& desc : shader.params) {
-            const auto& value = material.get(desc.name, shader);
-            auto info = shader.getParamTypeInfo(value);
-            if (info.size == 0) continue;
-
-            uint32_t offset = (static_cast<uint32_t>(uboData.size()) + info.alignment - 1) & ~(info.alignment - 1);
-            uboData.resize(offset + info.size);
-            std::visit([&](auto&& val) {
-                using T = std::decay_t<decltype(val)>;
-                if constexpr (!std::is_same_v<T, Resources::Handle<Data::Texture>>) {
-                    memcpy(uboData.data() + offset, &val, sizeof(val));
-                }
-            }, value);
-        }
-        if (uboData.empty()) uboData.resize(4, 0);
-
-        vk::DeviceSize uboSize = uboData.size();
-        auto [stagingBuffer, stagingMemory] = createBuffer(
-            uboSize,
-            vk::BufferUsageFlagBits::eTransferSrc,
-            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
-        );
-        void* mapped = stagingMemory.mapMemory(0, uboSize);
-        memcpy(mapped, uboData.data(), uboSize);
-        stagingMemory.unmapMemory();
-        std::tie(result.paramsBuffer, result.paramsMemory) = createBuffer(
-            uboSize,
-            vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst,
-            vk::MemoryPropertyFlagBits::eDeviceLocal
-        );
-        copyBuffer(stagingBuffer, result.paramsBuffer, uboSize);
-        
-        result.descriptorSet = std::move(_device.allocateDescriptorSets(
-            vk::DescriptorSetAllocateInfo {
-                .descriptorPool = _descriptorPool,
-                .descriptorSetCount = 1,
-                .pSetLayouts = &*vulkanShader.descriptorSetLayout
-            }
-        ).front());
-
-        const size_t textureCount = std::ranges::count_if(
-            shader.params,
-            [&shader](const Data::ShaderParamDesc& desc) {
-                return shader.isTextureParam(desc.defaultValue);
-            }
-        );
-        std::vector<vk::DescriptorImageInfo> imageInfos;
-        imageInfos.reserve(textureCount);
-        std::vector<vk::WriteDescriptorSet> writes;
-        writes.reserve(textureCount + 1);
-
-        vk::DescriptorBufferInfo bufferInfo{
-            .buffer = *result.paramsBuffer,
-            .offset = 0,
-            .range = uboSize
-        };
-        writes.push_back(vk::WriteDescriptorSet{
-            .dstSet = *result.descriptorSet,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eUniformBuffer,
-            .pBufferInfo = &bufferInfo
-        });
-
-        uint32_t textureBinding = 1;
-        for (const auto& desc : shader.params) {
-            const auto& value = material.get(desc.name, shader);
-            if (!shader.isTextureParam(value)) continue;
-            auto texHandle = std::get<Resources::Handle<Data::Texture>>(value);
-            if (texHandle.isValid()) {
-                auto& tex = _texturesMap[texHandle];
-                imageInfos.push_back({
-                    .sampler = *tex.textureSampler,
-                    .imageView = *tex.textureImageView,
-                    .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-                });
-            }
-            else {
-                imageInfos.push_back({
-                    .sampler = *_fallbackSampler,
-                    .imageView = *_fallbackImageView,
-                    .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-                });
-            }
-
-            writes.push_back(vk::WriteDescriptorSet{
-                .dstSet = *result.descriptorSet,
-                .dstBinding = textureBinding++,
-                .descriptorCount = 1,
-                .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-                .pImageInfo = &imageInfos.back()
-            });
-        }
-        _device.updateDescriptorSets(writes, {});
-
-        _materialsMap[handle] = std::move(result);
-    }
-    
-    void VulkanRenderer::createMesh(
-        tr::Resources::Handle<tr::Data::Mesh> handle,
-        const tr::Data::Mesh& mesh
-    ) {
+    tr::Resources::Handle<tr::Data::Mesh> VulkanRenderer::createMesh(const tr::Data::Mesh& mesh) {
         VulkanMesh result{
-            .source = handle
+            .handle = { _meshesIdx++, _resourceGeneration }
         };
 
         { // vertex buffer
@@ -1675,7 +1594,120 @@ namespace tr::Rendering::Vulkan {
             start += subMeshSize;
         }
 
-        _meshesMap[handle] = std::move(result);
+        _meshesMap[result.handle] = std::move(result);
+        return result.handle;
+    }
+    
+    void VulkanRenderer::registerMaterial(
+        tr::Resources::Handle<tr::Data::Material> handle,
+        const tr::Data::Material& material
+    ) {
+        auto& vulkanShader =
+            material.blendMode == tr::Data::BlendMode::Opaque ?
+            _opaqueShader : _transparentShader;
+
+        VulkanMaterial result{
+            .handle = handle,
+            .shader = &vulkanShader
+        };
+
+        std::vector<uint8_t> uboData;
+        for (const auto& desc : vulkanShader.source->params) {
+            const auto& value = material.get(desc.name, *vulkanShader.source);
+            auto info = vulkanShader.source->getParamTypeInfo(value);
+            if (info.size == 0) continue;
+
+            uint32_t offset = (static_cast<uint32_t>(uboData.size()) + info.alignment - 1) & ~(info.alignment - 1);
+            uboData.resize(offset + info.size);
+            std::visit([&](auto&& val) {
+                using T = std::decay_t<decltype(val)>;
+                if constexpr (!std::is_same_v<T, Resources::Handle<Data::Texture>>) {
+                    memcpy(uboData.data() + offset, &val, sizeof(val));
+                }
+            }, value);
+        }
+        if (uboData.empty()) uboData.resize(4, 0);
+
+        vk::DeviceSize uboSize = uboData.size();
+        auto [stagingBuffer, stagingMemory] = createBuffer(
+            uboSize,
+            vk::BufferUsageFlagBits::eTransferSrc,
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+        );
+        void* mapped = stagingMemory.mapMemory(0, uboSize);
+        memcpy(mapped, uboData.data(), uboSize);
+        stagingMemory.unmapMemory();
+        std::tie(result.paramsBuffer, result.paramsMemory) = createBuffer(
+            uboSize,
+            vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst,
+            vk::MemoryPropertyFlagBits::eDeviceLocal
+        );
+        copyBuffer(stagingBuffer, result.paramsBuffer, uboSize);
+        
+        result.descriptorSet = std::move(_device.allocateDescriptorSets(
+            vk::DescriptorSetAllocateInfo {
+                .descriptorPool = _descriptorPool,
+                .descriptorSetCount = 1,
+                .pSetLayouts = &*vulkanShader.descriptorSetLayout
+            }
+        ).front());
+
+        const size_t textureCount = std::ranges::count_if(
+            vulkanShader.source->params,
+            [&vulkanShader](const Data::ShaderParamDesc& desc) {
+                return vulkanShader.source->isTextureParam(desc.defaultValue);
+            }
+        );
+        std::vector<vk::DescriptorImageInfo> imageInfos;
+        imageInfos.reserve(textureCount);
+        std::vector<vk::WriteDescriptorSet> writes;
+        writes.reserve(textureCount + 1);
+
+        vk::DescriptorBufferInfo bufferInfo{
+            .buffer = *result.paramsBuffer,
+            .offset = 0,
+            .range = uboSize
+        };
+        writes.push_back(vk::WriteDescriptorSet{
+            .dstSet = *result.descriptorSet,
+            .dstBinding = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eUniformBuffer,
+            .pBufferInfo = &bufferInfo
+        });
+
+        uint32_t textureBinding = 1;
+        for (const auto& desc : vulkanShader.source->params) {
+            const auto& value = material.get(desc.name, *vulkanShader.source);
+            if (!vulkanShader.source->isTextureParam(value)) continue;
+            auto texHandle = std::get<Resources::Handle<Data::Texture>>(value);
+            if (texHandle.isValid()) {
+                auto& tex = _texturesMap[texHandle];
+                imageInfos.push_back({
+                    .sampler = *tex.textureSampler,
+                    .imageView = *tex.textureImageView,
+                    .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+                });
+            }
+            else {
+                imageInfos.push_back({
+                    .sampler = *_fallbackSampler,
+                    .imageView = *_fallbackImageView,
+                    .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+                });
+            }
+
+            writes.push_back(vk::WriteDescriptorSet{
+                .dstSet = *result.descriptorSet,
+                .dstBinding = textureBinding++,
+                .descriptorCount = 1,
+                .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                .pImageInfo = &imageInfos.back()
+            });
+        }
+        _device.updateDescriptorSets(writes, {});
+
+        _materialsMap[handle] = std::move(result);
     }
 
 #pragma endregion
@@ -1912,21 +1944,20 @@ namespace tr::Rendering::Vulkan {
             if (materialIt == _materialsMap.end()) {
                 throw std::runtime_error("Can't use not registered material #" + material.index);
             }
-            auto shaderIt = _shadersMap.find(materialIt->second.shader);
-            if (shaderIt == _shadersMap.end()) {
-                throw std::runtime_error("Can't use not registered shader #" + materialIt->second.shader.index);
+            const auto* pipeline = materialIt->second.shader;
+            if (pipeline == nullptr) {
+                throw std::runtime_error("Can't use material with no shader");
             }
-            const auto& pipeline = shaderIt->second;
-            commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline.graphicsPipeline);
+            commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline->graphicsPipeline);
             commandBuffer.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics,
-                pipeline.pipelineLayout,
+                pipeline->pipelineLayout,
                 0,
                 { *_descriptorSets[_currentFrame], *materialIt->second.descriptorSet },
                 nullptr
             );
             commandBuffer.pushConstants(
-                pipeline.pipelineLayout,
+                pipeline->pipelineLayout,
                 vk::ShaderStageFlagBits::eVertex,
                 0,
                 vk::ArrayProxy<const glm::mat4>(command.modelMatrix)
@@ -2003,7 +2034,7 @@ namespace tr::Rendering::Vulkan {
             .stageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput
         };
         vk::SemaphoreSubmitInfo signalSemaphoreInfo{
-            .semaphore = *_renderFinishedSemaphores[_currentFrame],
+            .semaphore = *_renderFinishedSemaphores[_currentImageIndex],
             .stageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput
         };
         vk::SubmitInfo2 submitInfo{
@@ -2019,7 +2050,7 @@ namespace tr::Rendering::Vulkan {
 
         vk::PresentInfoKHR presentInfo{
             .waitSemaphoreCount = 1,
-            .pWaitSemaphores = &*_renderFinishedSemaphores[_currentFrame],
+            .pWaitSemaphores = &*_renderFinishedSemaphores[_currentImageIndex],
             .swapchainCount = 1,
             .pSwapchains = &*_swapchain,
             .pImageIndices = &_currentImageIndex

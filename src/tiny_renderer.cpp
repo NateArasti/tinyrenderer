@@ -24,7 +24,6 @@
 #include "orbit_controller.h"
 #include "pbr.h"
 #include "renderer.h"
-#include "resource_manager.h"
 #include "loader.h"
 #include "shadow.h"
 #include "ui_data.h"
@@ -54,7 +53,7 @@ namespace tr {
         App::Input input{ *application.window };
         UI::UIProvider uiProvider{ *application.window, input };
 
-        Data::ResourceManager resourceManager;
+        Data::EmbeddedShaders::Pbr baseShader;
         std::unique_ptr<Rendering::Vulkan::VulkanRenderer> rhi;
         std::unique_ptr<Rendering::Renderer> renderer;
         
@@ -72,8 +71,6 @@ namespace tr {
         UI::UIWindow cameraWindow;
         std::string gpuName;
         std::string modelName = "Default Scene";
-        std::size_t sceneVertexCount = 0;
-        std::size_t scenePolygonCount = 0;
         float lightYaw = 0.0f;
         float lightPitch = 0.0f;
         float smoothedDeltaTime = 1.0f / 60.0f;
@@ -108,6 +105,7 @@ namespace tr {
         void setupUI() {
             debugWindow = UI::UIWindow{
                 .name = "Debug",
+                .width = 260.0f,
                 .height = 75.0f,
                 .drawCallback = [this]() {
                     ImGui::Text("FPS: %d", static_cast<int>(1.0f / smoothedDeltaTime));
@@ -134,10 +132,10 @@ namespace tr {
                     ImGui::Separator();
                     ImGui::DragFloat("Scale", &currentScene->scale, 0.01f, 0.001f, 1000.0f, "%.3f");
                     currentScene->scale = std::max(currentScene->scale, 0.001f);
-                    const glm::vec3 bounds = currentScene->sceneSize * currentScene->scale;
+                    const glm::vec3 bounds = currentScene->getSceneBounds().second * currentScene->scale;
                     ImGui::Text("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
-                    ImGui::Text("Vertices: %zu", sceneVertexCount);
-                    ImGui::Text("Polygons: %zu", scenePolygonCount);
+                    ImGui::Text("Vertices: %zu", currentScene->verticesCount);
+                    ImGui::Text("Polygons: %zu", currentScene->polygonCount);
                 }
             };
 
@@ -212,10 +210,10 @@ namespace tr {
 
             Data::EmbeddedShaders::Shadow shadowShader;
             rhi->createShadowShader(shadowShader);
+            rhi->createBaseShaders(baseShader);
 
             renderer = std::make_unique<Rendering::Renderer>(
                 *rhi,
-                resourceManager,
                 *application.window
             );
         }
@@ -269,20 +267,10 @@ namespace tr {
         }
 
         void loadScene(const SceneFactory& sceneFactory) {
-            resourceManager.clear();
-            const auto baseOpaqueShader = resourceManager.shadersPool.add(
-                std::make_unique<Data::EmbeddedShaders::Pbr>()
-            );
-            const auto baseTransparentShader = resourceManager.shadersPool.add(
-                std::make_unique<Data::EmbeddedShaders::Pbr>()
-            );
-            resourceManager.shadersPool.get(baseTransparentShader)->blendMode = tr::Data::BlendMode::Transparent;
+            renderer->clearState();
             currentScene = sceneFactory(Loading::LoadContext{
-                .resourceManager = resourceManager,
-                .baseOpaqueShader = baseOpaqueShader,
-                .baseTransparentShader = baseTransparentShader,
+                .renderingInterface = renderer->getInterface(),
             });
-            renderer->reloadResources();
         }
 
         void loadSelectedModel() {
@@ -307,14 +295,6 @@ namespace tr {
             const glm::vec3 direction = glm::normalize(directionalLight.direction);
             lightYaw = glm::degrees(std::atan2(direction.x, direction.z));
             lightPitch = glm::degrees(std::asin(std::clamp(direction.y, -1.0f, 1.0f)));
-
-            sceneVertexCount = 0;
-            scenePolygonCount = 0;
-            for (auto entry : resourceManager.meshesPool) {
-                const Data::Mesh* mesh = entry.second;
-                sceneVertexCount += mesh->vertices.size();
-                scenePolygonCount += mesh->indices.size() / 3;
-            }
         }
 
         void updateLightDirection() {

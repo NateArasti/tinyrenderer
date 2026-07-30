@@ -10,10 +10,8 @@
 namespace tr::Data {
     struct Material {
         std::string name;
-        Resources::Handle<Data::Shader> shader;
+        BlendMode blendMode = BlendMode::Opaque;
         std::unordered_map<std::string, ShaderParamValue> params;
-
-        explicit Material(Resources::Handle<Data::Shader> shader) : shader(shader) {}
 
         Material& set(const std::string& paramName, ShaderParamValue value) {
             params[paramName] = std::move(value);

@@ -23,7 +23,7 @@
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"
-#include "resource_manager.h"
+#include "rhi.h"
 #include "transform.h"
 
 namespace tr::Loading {
@@ -187,25 +187,25 @@ namespace tr::Loading {
 
             const size_t rowSize = static_cast<size_t>(width) * STBI_rgb_alpha;
             const size_t pixelDataSize = rowSize * static_cast<size_t>(height);
-            auto texture = std::make_unique<Texture>();
-            texture->name = toString(sourceTexture->name);
-            if (texture->name.empty() && !texturePath.empty()) {
-                texture->name = texturePath.filename().string();
+            Texture texture;
+            texture.name = toString(sourceTexture->name);
+            if (texture.name.empty() && !texturePath.empty()) {
+                texture.name = texturePath.filename().string();
             }
-            texture->width = static_cast<uint32_t>(width);
-            texture->height = static_cast<uint32_t>(height);
-            texture->channels = STBI_rgb_alpha;
-            texture->colorSpace = colorSpace;
-            texture->pixels.assign(decoded, decoded + pixelDataSize);
+            texture.width = static_cast<uint32_t>(width);
+            texture.height = static_cast<uint32_t>(height);
+            texture.channels = STBI_rgb_alpha;
+            texture.colorSpace = colorSpace;
+            texture.pixels.assign(decoded, decoded + pixelDataSize);
             stbi_image_free(decoded);
 
             for (int top = 0, bottom = height - 1; top < bottom; ++top, --bottom) {
-                const auto topBegin = texture->pixels.begin() + static_cast<size_t>(top) * rowSize;
-                const auto bottomBegin = texture->pixels.begin() + static_cast<size_t>(bottom) * rowSize;
+                const auto topBegin = texture.pixels.begin() + static_cast<size_t>(top) * rowSize;
+                const auto bottomBegin = texture.pixels.begin() + static_cast<size_t>(bottom) * rowSize;
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const auto handle = context.resourceManager.texturesPool.add(std::move(texture));
+            const auto handle = context.renderingInterface.createTexture(texture);
             cache.emplace(cacheKey, handle);
             return handle;
         }
@@ -218,18 +218,21 @@ namespace tr::Loading {
             return map.has_value ? toGlm(map.value_vec3) : fallback;
         }
 
-        Handle<Material> createDefaultMaterial(LoadContext& context) {
-            auto material = std::make_unique<Material>(context.baseOpaqueShader);
+        Handle<Material> createDefaultMaterial(Scene& scene, LoadContext& context) {
+            auto material = std::make_unique<Material>();
             material->name = "default";
             material->set("diffuseColor", glm::vec4(1.0f));
             material->set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
             material->set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
             material->set("metallicFactor", 0.0f);
             material->set("roughnessFactor", 1.0f);
-            return context.resourceManager.materialsPool.add(std::move(material));
+            const auto handle = scene.materials.add(std::move(material));
+            context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            return handle;
         }
 
         std::unordered_map<const ufbx_material*, Handle<Material>> createMaterials(
+            Scene& scene,
             LoadContext& context,
             const std::filesystem::path& modelDirectory,
             const ufbx_scene& sourceScene
@@ -243,9 +246,8 @@ namespace tr::Loading {
                 const bool transparent =
                     opacity < 0.999f
                     || (pbr.opacity.texture && pbr.opacity.texture_enabled);
-                auto material = std::make_unique<Material>(
-                    transparent ? context.baseTransparentShader : context.baseOpaqueShader
-                );
+                auto material = std::make_unique<Material>();
+                material->blendMode = transparent ? BlendMode::Transparent : BlendMode::Opaque;
                 material->name = toString(source->name);
 
                 const glm::vec3 baseColor =
@@ -339,10 +341,9 @@ namespace tr::Loading {
                     TextureColorSpace::Linear
                 );
 
-                result.emplace(
-                    source,
-                    context.resourceManager.materialsPool.add(std::move(material))
-                );
+                const auto handle = scene.materials.add(std::move(material));
+                context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+                result.emplace(source, handle);
             }
             return result;
         }
@@ -350,9 +351,11 @@ namespace tr::Loading {
         struct ImportedMesh {
             Handle<Mesh> mesh;
             std::vector<uint32_t> materialSlots;
+            MeshBounds bounds;
         };
 
         ImportedMesh createMesh(
+            Scene& scene,
             LoadContext& context,
             const ufbx_mesh& source
         ) {
@@ -360,8 +363,8 @@ namespace tr::Loading {
                 return {};
             }
 
-            auto mesh = std::make_unique<Mesh>();
-            mesh->name = toString(source.name);
+            Mesh mesh;
+            mesh.name = toString(source.name);
             std::vector<uint32_t> materialSlots;
 
             std::vector<Mesh::Vertex> flatVertices;
@@ -438,7 +441,7 @@ namespace tr::Loading {
                 if (subMeshSize == 0) {
                     continue;
                 }
-                mesh->subMeshData.push_back(static_cast<uint32_t>(subMeshSize));
+                mesh.subMeshData.push_back(static_cast<uint32_t>(subMeshSize));
                 materialSlots.push_back(partIndex);
             }
 
@@ -447,7 +450,7 @@ namespace tr::Loading {
                 return {};
             }
 
-            mesh->indices.resize(flatVertices.size());
+            mesh.indices.resize(flatVertices.size());
             ufbx_vertex_stream stream{
                 .data = flatVertices.data(),
                 .vertex_count = flatVertices.size(),
@@ -457,23 +460,25 @@ namespace tr::Loading {
             const size_t numVertices = ufbx_generate_indices(
                 &stream,
                 1,
-                mesh->indices.data(),
-                mesh->indices.size(),
+                mesh.indices.data(),
+                mesh.indices.size(),
                 nullptr,
                 &indexError
             );
             if (numVertices == 0) {
                 char description[512]{};
                 ufbx_format_error(description, sizeof(description), &indexError);
-                fmt::println("Couldn't index FBX mesh {}: {}", mesh->name, description);
+                fmt::println("Couldn't index FBX mesh {}: {}", mesh.name, description);
                 return {};
             }
             flatVertices.resize(numVertices);
-            mesh->vertices = std::move(flatVertices);
+            mesh.vertices = std::move(flatVertices);
+            const auto bounds = scene.registerMesh(mesh);
 
             return {
-                context.resourceManager.meshesPool.add(std::move(mesh)),
-                std::move(materialSlots)
+                context.renderingInterface.createMesh(mesh),
+                std::move(materialSlots),
+                bounds
             };
         }
 
@@ -512,15 +517,16 @@ namespace tr::Loading {
             }
 
             const auto materials = createMaterials(
+                scene,
                 context,
                 path.parent_path(),
                 *sourceScene
             );
-            const auto defaultMaterial = createDefaultMaterial(context);
+            const auto defaultMaterial = createDefaultMaterial(scene, context);
             std::unordered_map<const ufbx_mesh*, ImportedMesh> meshes;
             meshes.reserve(sourceScene->meshes.count);
             for (const ufbx_mesh* sourceMesh : sourceScene->meshes) {
-                meshes.emplace(sourceMesh, createMesh(context, *sourceMesh));
+                meshes.emplace(sourceMesh, createMesh(scene, context, *sourceMesh));
             }
             for (const ufbx_node* node : sourceScene->nodes) {
                 if (!node->mesh) {
@@ -538,6 +544,7 @@ namespace tr::Loading {
                 }
                 object->mesh = foundMesh->second.mesh;
                 object->transform = Transform::fromTransform(toGlm(node->geometry_to_world));
+                scene.includeBounds(foundMesh->second.bounds, object->transform.getMatrix());
                 for (uint32_t materialSlot : foundMesh->second.materialSlots) {
                     if (materialSlot < node->materials.count) {
                         const auto foundMaterial = materials.find(

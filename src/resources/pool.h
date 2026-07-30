@@ -53,6 +53,11 @@ namespace tr::Resources {
             return _slots[handle.index].value.get();
         }
 
+        const T* get(Handle<T> handle) const {
+            if (!isValid(handle)) return nullptr;
+            return _slots[handle.index].value.get();
+        }
+
         void remove(Handle<T> handle) {
             if (!isValid(handle)) return;
             _slots[handle.index].value.reset();

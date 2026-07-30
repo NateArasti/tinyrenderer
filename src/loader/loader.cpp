@@ -8,7 +8,7 @@
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"
-#include "resource_manager.h"
+#include "rhi.h"
 
 #include "gltf_importer.h"
 #include "fbx_importer.h"
@@ -19,23 +19,32 @@ namespace tr::Loading {
         using namespace tr::Data;
         using namespace tr::Resources;
 
-        Handle<Material> createCubeMaterial(ResourceManager& resourceManager, Handle<Shader> shader) {
-            auto material = std::make_unique<Material>(shader);
+        struct UploadedMesh {
+            Handle<Mesh> handle;
+            MeshBounds bounds;
+        };
+
+        Handle<Material> createCubeMaterial(Scene& scene, LoadContext ctx) {
+            auto material = std::make_unique<Material>();
             material->name = "base";
             material->set("diffuseColor", glm::vec4(1, 1, 1, 1));
-            return resourceManager.materialsPool.add(std::move(material));
+            auto handle = scene.materials.add(std::move(material));
+            ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            return handle;
         }
 
-        Handle<Material> createPlaneMaterial(ResourceManager& resourceManager, Handle<Shader> shader) {
-            auto material = std::make_unique<Material>(shader);
+        Handle<Material> createPlaneMaterial(tr::Data::Scene& scene, LoadContext ctx) {
+            auto material = std::make_unique<Material>();
             material->name = "base";
             material->set("metallicFactor", 0.5f).set("roughnessFactor", 0.5f);
-            return resourceManager.materialsPool.add(std::move(material));
+            auto handle = scene.materials.add(std::move(material));
+            ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            return handle;
         }
 
-        Handle<Mesh> createCubeMesh(ResourceManager& resourceManager) {
-            auto mesh = std::make_unique<Mesh>();
-            mesh->vertices = {
+        UploadedMesh createCubeMesh(Scene& scene, LoadContext ctx) {
+            Mesh mesh;
+            mesh.vertices = {
                 {{-0.5f, -0.5f, -0.5f}, {0, -1, 0}, {0, 0}},
                 {{-0.5f, -0.5f,  0.5f}, {0, -1, 0}, {0, 1}},
                 {{ 0.5f, -0.5f, -0.5f}, {0, -1, 0}, {1, 0}},
@@ -68,80 +77,56 @@ namespace tr::Loading {
             };
 
             for (uint32_t i = 0; i < 24; i += 4) {
-                mesh->indices.insert(mesh->indices.end(), {
+                mesh.indices.insert(mesh.indices.end(), {
                     i, i + 1, i + 2,
                     i + 1, i + 3, i + 2
                 });
             }
-            mesh->subMeshData.push_back(36);
-            return resourceManager.meshesPool.add(std::move(mesh));
+            mesh.subMeshData.push_back(36);
+            const auto bounds = scene.registerMesh(mesh);
+            return { ctx.renderingInterface.createMesh(mesh), bounds };
         }
 
-        Handle<Mesh> createPlaneMesh(ResourceManager& resourceManager) {
-            auto mesh = std::make_unique<Mesh>();
-            mesh->vertices = {
+        UploadedMesh createPlaneMesh(Scene& scene, LoadContext ctx) {
+            Mesh mesh;
+            mesh.vertices = {
                 {{-0.5f, 0, -0.5f}, {0, 1, 0}, {0, 0}},
                 {{ 0.5f, 0, -0.5f}, {0, 1, 0}, {1, 0}},
                 {{-0.5f, 0,  0.5f}, {0, 1, 0}, {0, 1}},
                 {{ 0.5f, 0,  0.5f}, {0, 1, 0}, {1, 1}}
             };
-            mesh->indices = {0, 1, 2, 1, 3, 2};
-            mesh->subMeshData.push_back(6);
-            return resourceManager.meshesPool.add(std::move(mesh));
-        }
+            mesh.indices = {0, 1, 2, 1, 3, 2};
+            mesh.subMeshData.push_back(6);
 
-        void calculateBounds(Scene& scene, ResourceManager& resourceManager) {
-            glm::vec3 min(std::numeric_limits<float>::max());
-            glm::vec3 max(std::numeric_limits<float>::lowest());
-            bool hasGeometry = false;
-
-            for (const auto& object : scene.getObjects()) {
-                const Mesh* mesh = resourceManager.meshesPool.get(object->mesh);
-                if (!mesh) continue;
-
-                const glm::mat4 model = object->transform.getMatrix();
-                for (const auto& vertex : mesh->vertices) {
-                    const glm::vec3 worldPosition = model * glm::vec4(vertex.position, 1.0f);
-                    min = glm::min(min, worldPosition);
-                    max = glm::max(max, worldPosition);
-                    hasGeometry = true;
-                }
-            }
-
-            if (!hasGeometry) {
-                scene.sceneCenter = glm::vec3(0.0f);
-                scene.sceneSize = glm::vec3(0.0f);
-                return;
-            }
-
-            scene.sceneCenter = (min + max) * 0.5f;
-            scene.sceneSize = max - min;
+            const auto bounds = scene.registerMesh(mesh);
+            return { ctx.renderingInterface.createMesh(mesh), bounds };
         }
     }
 
     std::unique_ptr<Data::Scene> Loader::loadDefaultScene(LoadContext ctx) {
         auto scene = std::make_unique<Scene>();
 
-        const auto cubeMaterial = createCubeMaterial(ctx.resourceManager, ctx.baseOpaqueShader);
-        const auto floorMaterial = createPlaneMaterial(ctx.resourceManager, ctx.baseOpaqueShader);
-        const auto cubeMesh = createCubeMesh(ctx.resourceManager);
-        const auto planeMesh = createPlaneMesh(ctx.resourceManager);
+        const auto cubeMaterial = createCubeMaterial(*scene, ctx);
+        const auto floorMaterial = createPlaneMaterial(*scene, ctx);
+        const auto cubeMesh = createCubeMesh(*scene, ctx);
+        const auto planeMesh = createPlaneMesh(*scene, ctx);
 
         auto cube = std::make_unique<Data::GameObject>();
-        cube->mesh = cubeMesh;
+        cube->mesh = cubeMesh.handle;
         cube->materials.push_back(cubeMaterial);
         cube->transform.position = glm::vec3(0.0f, 0.25f, 0.0f);
         cube->transform.eulerAngles = glm::vec3(0.0f, 20.0f, 0.0f);
         cube->transform.scale = glm::vec3(1.0f, 0.25f, 1.5f);
+        scene->includeBounds(cubeMesh.bounds, cube->transform.getMatrix());
         scene->getObjects().push_back(std::move(cube));
 
         auto plane = std::make_unique<Data::GameObject>();
-        plane->mesh = planeMesh;
+        plane->mesh = planeMesh.handle;
         plane->materials.push_back(floorMaterial);
         plane->transform.scale = glm::vec3(5.0f);
+        scene->includeBounds(planeMesh.bounds, plane->transform.getMatrix());
         scene->getObjects().push_back(std::move(plane));
 
-        calculateBounds(*scene, ctx.resourceManager);
         return scene;
     }
 
@@ -158,7 +143,6 @@ namespace tr::Loading {
         for (const auto& importer : importers) {
             importer->load(*scene, ctx, path);
         }
-        calculateBounds(*scene, ctx.resourceManager);
 
         return scene;
     }

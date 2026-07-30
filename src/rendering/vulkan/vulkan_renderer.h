@@ -19,7 +19,7 @@ namespace tr::Rendering::Vulkan {
     class VulkanRenderer : public RHI {
     private:
         static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
-        static constexpr uint32_t MAX_MATERIALS = 256;
+        static constexpr uint32_t MAX_MATERIALS = 4096;
         static constexpr uint32_t MAX_TEXTURES_PER_MATERIAL = 8;
         static constexpr uint32_t SHADOW_MAP_SIZE = 4096;
 
@@ -88,19 +88,21 @@ namespace tr::Rendering::Vulkan {
             nullptr,
             nullptr
         };
-        std::array<vk::raii::Semaphore, MAX_FRAMES_IN_FLIGHT> _renderFinishedSemaphores = {
-            nullptr,
-            nullptr
-        };
+        std::vector<vk::raii::Semaphore> _renderFinishedSemaphores;
         std::array<vk::raii::Fence, MAX_FRAMES_IN_FLIGHT> _inFlightFences = {
             nullptr,
             nullptr
         };
 
-        std::unordered_map<tr::Resources::Handle<tr::Data::Shader>, VulkanShader> _shadersMap;
+        uint32_t _resourceGeneration = 0;
+        uint32_t _textureIdx = 0;
+        uint32_t _meshesIdx = 0;
+
+        VulkanShader _opaqueShader;
+        VulkanShader _transparentShader;
         std::unordered_map<tr::Resources::Handle<tr::Data::Texture>, VulkanTexture> _texturesMap;
-        std::unordered_map<tr::Resources::Handle<tr::Data::Material>, VulkanMaterial> _materialsMap;
         std::unordered_map<tr::Resources::Handle<tr::Data::Mesh>, VulkanMesh> _meshesMap;
+        std::unordered_map<tr::Resources::Handle<tr::Data::Material>, VulkanMaterial> _materialsMap;
 
         uint32_t _currentFrame = 0;
         uint32_t _currentImageIndex = 0;
@@ -128,11 +130,13 @@ namespace tr::Rendering::Vulkan {
         void createDescriptorPool();
         void createDescriptorSets();
         void createSyncObjects();
+        void createRenderFinishedSemaphores();
         void cleanupSwapchain();
         void recreateSwapchain();
         void createUIObjects();
 
         void setDebugName(vk::ObjectType type, uint64_t handle, const char* name);
+        VulkanShader createShader(const tr::Data::Shader& shader, const tr::Data::BlendMode blendMode);
 
         std::unique_ptr<vk::raii::CommandBuffer> beginSingleTimeCommands();
         void endSingleTimeCommands(const vk::raii::CommandBuffer& commandBuffer) const;
@@ -201,24 +205,20 @@ namespace tr::Rendering::Vulkan {
             const auto properties = _physicalDevice.getProperties();
             return properties.deviceName.data();
         }
-        void clearResources() override;
         void resize(uint32_t width, uint32_t height) override;
 
         void createShadowShader(const tr::Data::Shader& shader) override;
+        void createBaseShaders(tr::Data::Shader& referenceShader) override;
 
-        void createShader(
-            tr::Resources::Handle<tr::Data::Shader> handle,
-            const tr::Data::Shader& shader) override;
-        void createTexture(
-            tr::Resources::Handle<tr::Data::Texture> handle,
-            const tr::Data::Texture& texture) override;
-        void createMaterial(
+        tr::Resources::Handle<tr::Data::Texture> createTexture(const tr::Data::Texture& texture) override;
+        tr::Resources::Handle<tr::Data::Mesh> createMesh(const tr::Data::Mesh& mesh) override;
+
+        void registerMaterial(
             tr::Resources::Handle<tr::Data::Material> handle,
-            const tr::Data::Material& material,
-            const tr::Data::Shader& shader) override;
-        void createMesh(
-            tr::Resources::Handle<tr::Data::Mesh> handle,
-            const tr::Data::Mesh& mesh) override;
+            const tr::Data::Material& material
+        ) override;
+        
+        void clearResources() override;
         
         void startFrame(const tr::Rendering::SceneData& sceneData) override;
         void startShadowPass() override;

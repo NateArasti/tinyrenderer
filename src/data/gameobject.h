@@ -15,7 +15,7 @@ namespace tr::Data {
     struct GameObject {
         std::string name;
         Transform transform;
-        tr::Resources::Handle<Data::Mesh> mesh;
-        std::vector<tr::Resources::Handle<Data::Material>> materials;
+        tr::Resources::Handle<Mesh> mesh;
+        std::vector<tr::Resources::Handle<Material>> materials;
     };
 }

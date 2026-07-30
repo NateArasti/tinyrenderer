@@ -23,7 +23,7 @@
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"
-#include "resource_manager.h"
+#include "rhi.h"
 
 namespace tr::Loading {
     namespace {
@@ -67,7 +67,7 @@ namespace tr::Loading {
         }
 
         Handle<Texture> loadTexture(
-            ResourceManager& resourceManager,
+            LoadContext ctx,
             const std::filesystem::path& modelDirectory,
             std::string_view textureName,
             TextureColorSpace colorSpace,
@@ -130,35 +130,38 @@ namespace tr::Loading {
 
             const size_t rowSize = static_cast<size_t>(width) * STBI_rgb_alpha;
             const size_t pixelDataSize = rowSize * static_cast<size_t>(height);
-            auto texture = std::make_unique<Texture>();
-            texture->name = std::filesystem::path(textureName).filename().string();
-            texture->width = static_cast<uint32_t>(width);
-            texture->height = static_cast<uint32_t>(height);
-            texture->channels = STBI_rgb_alpha;
-            texture->colorSpace = colorSpace;
-            texture->pixels.assign(decoded, decoded + pixelDataSize);
+            Texture texture;
+            texture.name = std::filesystem::path(textureName).filename().string();
+            texture.width = static_cast<uint32_t>(width);
+            texture.height = static_cast<uint32_t>(height);
+            texture.channels = STBI_rgb_alpha;
+            texture.colorSpace = colorSpace;
+            texture.pixels.assign(decoded, decoded + pixelDataSize);
             stbi_image_free(decoded);
 
             for (int top = 0, bottom = height - 1; top < bottom; ++top, --bottom) {
-                const auto topBegin = texture->pixels.begin() + static_cast<size_t>(top) * rowSize;
-                const auto bottomBegin = texture->pixels.begin() + static_cast<size_t>(bottom) * rowSize;
+                const auto topBegin = texture.pixels.begin() + static_cast<size_t>(top) * rowSize;
+                const auto bottomBegin = texture.pixels.begin() + static_cast<size_t>(bottom) * rowSize;
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const Handle<Texture> handle = resourceManager.texturesPool.add(std::move(texture));
+            const Handle<Texture> handle = ctx.renderingInterface.createTexture(texture);
             cache.emplace(std::move(cacheKey), handle);
             return handle;
         }
 
-        Handle<Material> createDefaultMaterial(ResourceManager& resourceManager, Handle<Shader> shader) {
-            auto material = std::make_unique<Material>(shader);
+        Handle<Material> createDefaultMaterial(Scene& scene, LoadContext ctx) {
+            auto material = std::make_unique<Material>();
             material->name = "default";
             material->set("diffuseColor", glm::vec4(1.0f));
-            return resourceManager.materialsPool.add(std::move(material));
+            auto handle = scene.materials.add(std::move(material));
+            ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            return handle;
         }
 
         std::vector<Handle<Material>> createMaterials(
-            LoadContext& context,
+            Scene& scene,
+            LoadContext& ctx,
             const std::filesystem::path& modelDirectory,
             const rapidobj::Materials& sourceMaterials
         ) {
@@ -168,9 +171,8 @@ namespace tr::Loading {
 
             for (const auto& source : sourceMaterials) {
                 const bool transparent = source.dissolve < 1.0f || !source.alpha_texname.empty();
-                auto material = std::make_unique<Material>(
-                    transparent ? context.baseTransparentShader : context.baseOpaqueShader
-                );
+                auto material = std::make_unique<Material>();
+                material->blendMode = transparent ? BlendMode::Transparent : BlendMode::Opaque;
                 material->name = source.name;
 
                 const auto loadMap = [&](
@@ -180,7 +182,7 @@ namespace tr::Loading {
                     TextureColorSpace colorSpace
                 ) {
                     const auto texture = loadTexture(
-                        context.resourceManager,
+                        ctx,
                         modelDirectory,
                         textureName,
                         colorSpace,
@@ -275,7 +277,10 @@ namespace tr::Loading {
                 const float legacyRoughness = std::sqrt(2.0f / (std::max(source.shininess, 0.0f) + 2.0f));
                 const float roughness = source.roughness > 0.0f ? source.roughness : legacyRoughness;
                 material->set("roughnessFactor", std::clamp(roughness, 0.04f, 1.0f));
-                materials.push_back(context.resourceManager.materialsPool.add(std::move(material)));
+
+                auto handle = scene.materials.add(std::move(material));
+                ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+                materials.push_back(handle);
             }
             return materials;
         }
@@ -329,7 +334,7 @@ namespace tr::Loading {
 
         void createMesh(
             Scene& scene,
-            LoadContext& context,
+            LoadContext& ctx,
             const rapidobj::Attributes& attributes,
             const rapidobj::Shape& shape,
             const std::vector<Handle<Material>>& materials,
@@ -339,8 +344,8 @@ namespace tr::Loading {
                 return;
             }
 
-            auto mesh = std::make_unique<Mesh>();
-            mesh->name = shape.name;
+            Mesh mesh;
+            mesh.name = shape.name;
             std::unordered_map<VertexKey, uint32_t, VertexKeyHash> vertexLookup;
             std::vector<bool> needsNormal;
             std::vector<int32_t> materialOrder;
@@ -375,10 +380,10 @@ namespace tr::Loading {
                     };
                     auto [vertexIt, vertexInserted] = vertexLookup.try_emplace(
                         key,
-                        static_cast<uint32_t>(mesh->vertices.size())
+                        static_cast<uint32_t>(mesh.vertices.size())
                     );
                     if (vertexInserted) {
-                        mesh->vertices.push_back(makeVertex(attributes, sourceIndex));
+                        mesh.vertices.push_back(makeVertex(attributes, sourceIndex));
                         needsNormal.push_back(missingNormal);
                     }
                     bucket.push_back(vertexIt->second);
@@ -389,8 +394,8 @@ namespace tr::Loading {
             object->name = shape.name;
             for (size_t bucket = 0; bucket < indicesByMaterial.size(); ++bucket) {
                 const auto& sourceIndices = indicesByMaterial[bucket];
-                mesh->indices.insert(mesh->indices.end(), sourceIndices.begin(), sourceIndices.end());
-                mesh->subMeshData.push_back(static_cast<uint32_t>(sourceIndices.size()));
+                mesh.indices.insert(mesh.indices.end(), sourceIndices.begin(), sourceIndices.end());
+                mesh.subMeshData.push_back(static_cast<uint32_t>(sourceIndices.size()));
 
                 const int32_t materialId = materialOrder[bucket];
                 if (materialId >= 0 && static_cast<size_t>(materialId) < materials.size()) {
@@ -402,16 +407,18 @@ namespace tr::Loading {
             }
 
             if (!hasNormals) {
-                mesh->recalculateNormals();
+                mesh.recalculateNormals();
             }
 
-            object->mesh = context.resourceManager.meshesPool.add(std::move(mesh));
+            const auto bounds = scene.registerMesh(mesh);
+            scene.includeBounds(bounds);
+            object->mesh = ctx.renderingInterface.createMesh(mesh);
             scene.getObjects().push_back(std::move(object));
         }
 
         void loadObj(
             Scene& scene,
-            LoadContext& context,
+            LoadContext& ctx,
             const std::filesystem::path& path
         ) {
             rapidobj::Result result = rapidobj::ParseFile(path);
@@ -427,15 +434,12 @@ namespace tr::Loading {
                 return;
             }
 
-            const auto materials = createMaterials(context, path.parent_path(), result.materials);
-            const auto defaultMaterial = createDefaultMaterial(
-                context.resourceManager,
-                context.baseOpaqueShader
-            );
+            const auto materials = createMaterials(scene, ctx, path.parent_path(), result.materials);
+            const auto defaultMaterial = createDefaultMaterial(scene, ctx);
             for (const auto& shape : result.shapes) {
                 createMesh(
                     scene,
-                    context,
+                    ctx,
                     result.attributes,
                     shape,
                     materials,

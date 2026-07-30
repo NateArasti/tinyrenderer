@@ -8,7 +8,7 @@
 
 namespace tr::Rendering::Vulkan {
     struct VulkanShader {
-        tr::Resources::Handle<tr::Data::Shader> source;
+        tr::Data::Shader* source = nullptr;
         vk::raii::PipelineLayout pipelineLayout = nullptr;
         vk::raii::Pipeline graphicsPipeline = nullptr;
         vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;

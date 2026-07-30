@@ -14,7 +14,7 @@ namespace tr::Rendering::Vulkan {
             uint32_t indexCount;
         };
 
-        tr::Resources::Handle<tr::Data::Mesh> source;
+        tr::Resources::Handle<tr::Data::Mesh> handle;
         std::vector<SubmeshLayout> subMeshesLayouts;
 
         vk::raii::Buffer vertexBuffer = nullptr;
