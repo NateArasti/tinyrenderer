@@ -551,7 +551,8 @@ namespace tr::Loading {
 
             fastgltf::Parser parser(
                 fastgltf::Extensions::KHR_mesh_quantization |
-                fastgltf::Extensions::KHR_materials_emissive_strength
+                fastgltf::Extensions::KHR_materials_emissive_strength |
+                fastgltf::Extensions::KHR_lights_punctual
             );
             auto loaded = parser.loadGltf(data.get(), path.parent_path(), options);
             if (loaded.error() != fastgltf::Error::None) {
