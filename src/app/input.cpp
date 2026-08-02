@@ -152,7 +152,7 @@ namespace tr::App {
 
     bool Input::isKeyJustPressed(Key key) const {
         for (const KeyEvent& event : keyEvents()) {
-            if (event.key == Key::F1 && event.pressed && !event.repeated) {
+            if (event.key == key && event.pressed && !event.repeated) {
                 return true;
             }
         }

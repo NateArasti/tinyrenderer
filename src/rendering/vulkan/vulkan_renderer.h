@@ -95,6 +95,9 @@ namespace tr::Rendering::Vulkan {
             return properties.deviceName.data();
         }
         void resize(uint32_t width, uint32_t height) override;
+        uint32_t getMsaaSamples() const override;
+        std::vector<uint32_t> getSupportedMsaaSamples() const override;
+        void setMsaaSamples(uint32_t samples) override;
 
         void createShadowShader(const tr::Data::Shader& shader) override;
         RenderingResources& resources() override { return *_resources; }

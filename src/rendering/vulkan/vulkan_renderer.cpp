@@ -11,6 +11,22 @@
 #include "scene_data.h"
 
 namespace tr::Rendering::Vulkan {
+    namespace {
+        vk::SampleCountFlagBits toSampleCount(uint32_t samples) {
+            switch (samples) {
+            case 1: return vk::SampleCountFlagBits::e1;
+            case 2: return vk::SampleCountFlagBits::e2;
+            case 4: return vk::SampleCountFlagBits::e4;
+            case 8: return vk::SampleCountFlagBits::e8;
+            default: throw std::invalid_argument("Unsupported MSAA sample count");
+            }
+        }
+
+        uint32_t fromSampleCount(vk::SampleCountFlagBits samples) {
+            return static_cast<uint32_t>(samples);
+        }
+    }
+
     VulkanRenderer::VulkanRenderer(const tr::App::Application& application) :
         _application(application),
         _vulkanContext(application),
@@ -46,6 +62,46 @@ namespace tr::Rendering::Vulkan {
 
     void VulkanRenderer::resize(uint32_t, uint32_t) {
         _swapchainDirty = true;
+    }
+
+    uint32_t VulkanRenderer::getMsaaSamples() const {
+        return fromSampleCount(_vulkanContext.msaaSamples);
+    }
+
+    std::vector<uint32_t> VulkanRenderer::getSupportedMsaaSamples() const {
+        const auto limits = _vulkanContext.physicalDevice.getProperties().limits;
+        const auto supported =
+            limits.framebufferColorSampleCounts
+            & limits.framebufferDepthSampleCounts;
+
+        std::vector<uint32_t> result;
+        for (const auto samples : {
+            vk::SampleCountFlagBits::e1,
+            vk::SampleCountFlagBits::e2,
+            vk::SampleCountFlagBits::e4,
+            vk::SampleCountFlagBits::e8
+        }) {
+            if (supported & samples) {
+                result.push_back(fromSampleCount(samples));
+            }
+        }
+        return result;
+    }
+
+    void VulkanRenderer::setMsaaSamples(uint32_t samples) {
+        const auto sampleCount = toSampleCount(samples);
+        const auto supported = getSupportedMsaaSamples();
+        if (std::ranges::find(supported, samples) == supported.end()) {
+            throw std::invalid_argument("MSAA sample count is not supported by this device");
+        }
+        if (_vulkanContext.msaaSamples == sampleCount) {
+            return;
+        }
+
+        _vulkanContext.device.waitIdle();
+        _vulkanContext.msaaSamples = sampleCount;
+        _colorPass->recreate();
+        _resources->recreateBaseShaders(_swapchain.format());
     }
 
 #pragma region Helpers

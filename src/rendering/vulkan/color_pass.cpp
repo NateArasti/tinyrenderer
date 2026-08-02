@@ -63,17 +63,21 @@ namespace tr::Rendering::Vulkan {
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
             vk::ImageAspectFlagBits::eColor
         );
-        transitionImageLayout(
-            commandBuffer,
-            *_colorImage.image,
-            vk::ImageLayout::eUndefined,
-            vk::ImageLayout::eColorAttachmentOptimal,
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::AccessFlagBits2::eColorAttachmentWrite,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            vk::ImageAspectFlagBits::eColor
-        );
+        const bool multisampled =
+            _vulkanContext.msaaSamples != vk::SampleCountFlagBits::e1;
+        if (multisampled) {
+            transitionImageLayout(
+                commandBuffer,
+                *_colorImage.image,
+                vk::ImageLayout::eUndefined,
+                vk::ImageLayout::eColorAttachmentOptimal,
+                vk::AccessFlagBits2::eColorAttachmentWrite,
+                vk::AccessFlagBits2::eColorAttachmentWrite,
+                vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+                vk::ImageAspectFlagBits::eColor
+            );
+        }
         transitionImageLayout(
             commandBuffer,
             *_depthImage.image,
@@ -89,13 +93,19 @@ namespace tr::Rendering::Vulkan {
         vk::ClearValue clearColor;
         clearColor.color = vk::ClearColorValue(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f });
         const vk::RenderingAttachmentInfo colorAttachment{
-            .imageView = *_colorImage.view,
+            .imageView = multisampled ? *_colorImage.view : _context->targetImageView,
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .resolveMode = vk::ResolveModeFlagBits::eAverage,
-            .resolveImageView = _context->targetImageView,
-            .resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .resolveMode = multisampled
+                ? vk::ResolveModeFlagBits::eAverage
+                : vk::ResolveModeFlagBits::eNone,
+            .resolveImageView = multisampled ? _context->targetImageView : vk::ImageView{},
+            .resolveImageLayout = multisampled
+                ? vk::ImageLayout::eColorAttachmentOptimal
+                : vk::ImageLayout::eUndefined,
             .loadOp = vk::AttachmentLoadOp::eClear,
-            .storeOp = vk::AttachmentStoreOp::eDontCare,
+            .storeOp = multisampled
+                ? vk::AttachmentStoreOp::eDontCare
+                : vk::AttachmentStoreOp::eStore,
             .clearValue = clearColor
         };
         const vk::RenderingAttachmentInfo depthAttachment{

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <span>
+#include <vector>
 
 #include <imgui.h>
 
@@ -22,6 +23,9 @@ namespace tr::Rendering {
 
         virtual std::string getDeviceName() const = 0;
         virtual void resize(uint32_t width, uint32_t height) = 0;
+        virtual uint32_t getMsaaSamples() const = 0;
+        virtual std::vector<uint32_t> getSupportedMsaaSamples() const = 0;
+        virtual void setMsaaSamples(uint32_t samples) = 0;
 
         virtual void createShadowShader(const tr::Data::Shader& shader) = 0;
         virtual RenderingResources& resources() = 0;

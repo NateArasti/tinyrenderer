@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <fmt/base.h>
 #include <glm/glm.hpp>
@@ -72,6 +73,7 @@ namespace tr {
         std::string gpuName;
         std::string modelName = "Default Scene";
         std::string importError;
+        std::vector<uint32_t> supportedMsaaSamples;
         float lightYaw = 0.0f;
         float lightPitch = 0.0f;
         float smoothedDeltaTime = 1.0f / 60.0f;
@@ -102,6 +104,7 @@ namespace tr {
             setupLight();
 
             gpuName = rhi->getDeviceName();
+            supportedMsaaSamples = rhi->getSupportedMsaaSamples();
             syncSceneUI();
         }
 
@@ -109,17 +112,32 @@ namespace tr {
             debugWindow = UI::UIWindow{
                 .name = "Debug",
                 .width = 260.0f,
-                .height = 75.0f,
+                .height = 105.0f,
                 .drawCallback = [this]() {
                     ImGui::Text("FPS: %d", static_cast<int>(1.0f / smoothedDeltaTime));
                     ImGui::TextUnformatted(gpuName.c_str());
+
+                    const uint32_t currentSamples = rhi->getMsaaSamples();
+                    const std::string preview = std::to_string(currentSamples) + "x";
+                    if (ImGui::BeginCombo("MSAA", preview.c_str())) {
+                        for (uint32_t samples : supportedMsaaSamples) {
+                            const std::string label = std::to_string(samples) + "x";
+                            const bool selected = samples == currentSamples;
+                            if (ImGui::Selectable(label.c_str(), selected)) {
+                                rhi->setMsaaSamples(samples);
+                            }
+                            if (selected) {
+                                ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
                 },
-                .additionalFlags = ImGuiWindowFlags_NoInputs
             };
 
             modelWindow = UI::UIWindow{
                 .name = "Model",
-                .height = 160.0f,
+                .height = 180.0f,
                 .drawCallback = [this]() {
                     if (ImGui::Button("Load Model")) {
                         loadSelectedModel();
@@ -133,12 +151,14 @@ namespace tr {
                     ImGui::Separator();
                     ImGui::TextUnformatted(modelName.c_str());
                     ImGui::Separator();
-                    ImGui::DragFloat("Scale", &currentScene->scale, 0.01f, 0.001f, 1000.0f, "%.3f");
-                    currentScene->scale = std::max(currentScene->scale, 0.001f);
                     const glm::vec3 bounds = currentScene->getSceneBounds().second * currentScene->scale;
                     ImGui::Text("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
                     ImGui::Text("Vertices: %zu", currentScene->verticesCount);
                     ImGui::Text("Polygons: %zu", currentScene->polygonCount);
+                    ImGui::Text("Objects: %zu", currentScene->getObjects().size());
+                    ImGui::Separator();
+                    currentScene->scale = std::max(currentScene->scale, 0.001f);
+                    ImGui::DragFloat("Scale", &currentScene->scale, 0.01f, 0.001f, 1000.0f, "%.3f");
 
                     drawImportErrorPopup();
                 }
