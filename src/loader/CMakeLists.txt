@@ -23,6 +23,9 @@ target_link_libraries(loader PRIVATE fmt::fmt)
 find_package(Stb REQUIRED)
 target_include_directories(loader PRIVATE ${Stb_INCLUDE_DIR})
 
+find_package(tinyexr CONFIG REQUIRED)
+target_link_libraries(loader PRIVATE unofficial::tinyexr::tinyexr)
+
 find_package(rapidobj CONFIG REQUIRED)
 target_link_libraries(loader PRIVATE rapidobj::rapidobj)
 
