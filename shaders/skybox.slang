@@ -1,14 +1,11 @@
-struct SceneData {
-    float4x4 view;
-    float4x4 proj;
-    float3 cameraPos;
-    float lightIntensity;
-    float3 lightDirection;
-    float _pad0;
-    float4 lightColor;
-    float4x4 lightViewProj;
+import scene_data;
+
+struct PushConstants {
+    float3 color;
+    float rotation;
 };
 
+[[vk::push_constant]] PushConstants pcs;
 [[vk::binding(0, 0)]] ConstantBuffer<SceneData> sceneData;
 [[vk::binding(0, 1)]] SamplerCube cubemap;
 
@@ -37,5 +34,13 @@ float4 fragMain(VSOutput input) : SV_TARGET {
         -1.0
     ));
     float3 worldDirection = normalize(mul(transpose((float3x3)sceneData.view), viewDirection));
-    return float4(cubemap.Sample(worldDirection).rgb, 1.0);
+
+    float c = cos(pcs.rotation);
+    float s = sin(pcs.rotation);
+    float3 rotatedDirection = float3(
+        c * worldDirection.x - s * worldDirection.z,
+        worldDirection.y,
+        s * worldDirection.x + c * worldDirection.z
+    );
+    return float4(cubemap.Sample(rotatedDirection).rgb * pcs.color, 1.0);
 }

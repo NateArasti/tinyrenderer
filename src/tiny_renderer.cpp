@@ -167,6 +167,8 @@ namespace tr {
 
             envWindow = UI::UIWindow{
                 .name = "Environment",
+                .width = 350.0f,
+                .height = 150.0f,
                 .drawCallback = [this]() {
                     if (ImGui::Button("Load Skybox")) {
                         loadSkybox();
@@ -176,8 +178,10 @@ namespace tr {
                         renderer->getResources().destroyCubemap(environment.skyboxHandle);
                         environment.skyboxHandle = {};
                     }
-                    ImGui::Spacing();
-                    ImGui::ColorEdit3("Color", &environment.clearColor.x);
+                    ImGui::ColorEdit3("Skybox Color", &environment.skyboxColor.x);
+                    ImGui::SliderAngle("Skybox Rotation", &environment.skyboxRotation);
+                    ImGui::Separator();
+                    ImGui::ColorEdit3("Clear Color", &environment.clearColor.x);
 
                     drawImportErrorPopup();
                 }

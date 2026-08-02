@@ -60,13 +60,21 @@ namespace tr::Rendering::Vulkan {
             .descriptorSetCount = 1,
             .pSetLayouts = &*_cubemapLayout
         }).front());
+        
+        const vk::PushConstantRange pushConstantRange{
+            .stageFlags = vk::ShaderStageFlagBits::eFragment,
+            .offset = 0,
+            .size = 4 * sizeof(float)
+        };
 
         const std::array setLayouts{ sceneLayout, *_cubemapLayout };
         _pipelineLayout = vk::raii::PipelineLayout(
             context.device,
             vk::PipelineLayoutCreateInfo{
                 .setLayoutCount = static_cast<uint32_t>(setLayouts.size()),
-                .pSetLayouts = setLayouts.data()
+                .pSetLayouts = setLayouts.data(),
+                .pushConstantRangeCount = 1,
+                .pPushConstantRanges = &pushConstantRange
             }
         );
         createPipeline(colorFormat);
@@ -266,6 +274,21 @@ namespace tr::Rendering::Vulkan {
                 { frame.sceneDescriptorSet, *_cubemapSet },
                 {}
             );
+
+            commandBuffer.pushConstants(
+                *_pipelineLayout,
+                vk::ShaderStageFlagBits::eFragment,
+                0,
+                vk::ArrayProxy<const float>(
+                    {
+                        environment.skyboxColor.x,
+                        environment.skyboxColor.y,
+                        environment.skyboxColor.z,
+                        environment.skyboxRotation
+                    }
+                )
+            );
+
             commandBuffer.draw(3, 1, 0, 0);
         }
 

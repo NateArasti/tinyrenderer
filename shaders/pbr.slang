@@ -1,15 +1,5 @@
 import light;
-
-struct SceneData {
-    float4x4 view;
-    float4x4 proj;
-    float3 cameraPos;
-    float lightIntensity;
-    float3 lightDirection;
-    float _pad0;
-    float4 lightColor;
-    float4x4 lightViewProj;
-};
+import scene_data;
 
 struct PushConstants {
     float4x4 model;
