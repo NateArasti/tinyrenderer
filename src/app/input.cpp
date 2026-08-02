@@ -90,6 +90,8 @@ namespace tr::App {
             case Key::A: return GLFW_KEY_A;
             case Key::S: return GLFW_KEY_S;
             case Key::D: return GLFW_KEY_D;
+            case Key::LeftShift: return GLFW_KEY_LEFT_SHIFT;
+            case Key::RightShift: return GLFW_KEY_RIGHT_SHIFT;
             default: return GLFW_KEY_UNKNOWN;
             }
         }

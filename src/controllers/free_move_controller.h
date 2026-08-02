@@ -13,6 +13,7 @@ namespace tr::Controllers {
 
     public:
         float speed = 15.0f;
+        float shiftMultiplier = 4.0f;
         float sensitivity = 0.1f;
 
         explicit FreeMoveController(tr::Data::Camera& camera);

@@ -58,7 +58,11 @@ namespace tr::Controllers {
         if (input.isKeyPressed(tr::App::Key::Q)) move -= glm::vec3(0, 1, 0);
 
         if (glm::length(move) > 0.0f) {
-            camera.transform.position += glm::normalize(move) * speed * deltaTime;
+            const bool shiftPressed =
+                input.isKeyPressed(tr::App::Key::LeftShift)
+                || input.isKeyPressed(tr::App::Key::RightShift);
+            const float movementSpeed = speed * (shiftPressed ? shiftMultiplier : 1.0f);
+            camera.transform.position += glm::normalize(move) * movementSpeed * deltaTime;
         }
     }
 }

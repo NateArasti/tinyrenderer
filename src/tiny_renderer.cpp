@@ -77,6 +77,7 @@ namespace tr {
         float smoothedDeltaTime = 1.0f / 60.0f;
         CameraControllerType cameraControllerType = CameraControllerType::FreeMove;
         float freeMoveSpeed = 10.0f;
+        float freeMoveShiftMultiplier = 2.5f;
         float freeMoveSensitivity = 0.1f;
         float orbitMaxRadius = 50.0f;
         float orbitSensitivity = 0.2f;
@@ -170,7 +171,7 @@ namespace tr {
             cameraWindow = UI::UIWindow{
                 .name = "Camera",
                 .width = 300.0f,
-                .height = 225.0f,
+                .height = 250.0f,
                 .drawCallback = [this]() {
                     ImGui::PushItemWidth(160.0f);
 
@@ -182,6 +183,13 @@ namespace tr {
                     if (cameraControllerType == CameraControllerType::FreeMove) {
                         auto& freeMove = static_cast<Controllers::FreeMoveController&>(*cameraController);
                         ImGui::DragFloat("Speed", &freeMove.speed, 0.1f, 0.1f, 100.0f);
+                        ImGui::DragFloat(
+                            "Shift Multiplier",
+                            &freeMove.shiftMultiplier,
+                            0.1f,
+                            1.0f,
+                            20.0f
+                        );
                         ImGui::DragFloat("Look Sensitivity", &freeMove.sensitivity, 0.01f, 0.01f, 2.0f);
                     }
                     else {
@@ -249,6 +257,7 @@ namespace tr {
                 if (cameraControllerType == CameraControllerType::FreeMove) {
                     const auto& freeMove = static_cast<const Controllers::FreeMoveController&>(*cameraController);
                     freeMoveSpeed = freeMove.speed;
+                    freeMoveShiftMultiplier = freeMove.shiftMultiplier;
                     freeMoveSensitivity = freeMove.sensitivity;
                 }
                 else {
@@ -263,6 +272,7 @@ namespace tr {
             if (type == CameraControllerType::FreeMove) {
                 auto controller = std::make_unique<Controllers::FreeMoveController>(camera);
                 controller->speed = freeMoveSpeed;
+                controller->shiftMultiplier = freeMoveShiftMultiplier;
                 controller->sensitivity = freeMoveSensitivity;
                 cameraController = std::move(controller);
             }
