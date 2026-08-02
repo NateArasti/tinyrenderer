@@ -48,9 +48,11 @@ namespace tr::Rendering::Vulkan {
     }
 
     void ColorPass::begin(vk::raii::CommandBuffer& commandBuffer) {
+#ifndef NDEBUG
         vk::DebugUtilsLabelEXT labelInfo{};
         labelInfo.setPLabelName("Color Pass");
         commandBuffer.beginDebugUtilsLabelEXT(labelInfo);
+#endif
 
         transitionImageLayout(
             commandBuffer,
@@ -164,6 +166,8 @@ namespace tr::Rendering::Vulkan {
 
     void ColorPass::end(vk::raii::CommandBuffer& commandBuffer) {
         commandBuffer.endRendering();
+#ifndef NDEBUG
         commandBuffer.endDebugUtilsLabelEXT();
+#endif
     }
 }

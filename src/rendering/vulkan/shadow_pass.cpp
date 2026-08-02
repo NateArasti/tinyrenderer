@@ -179,9 +179,11 @@ namespace tr::Rendering::Vulkan {
             .pDepthAttachment = &depthAttachment
         };
         
+#ifndef NDEBUG
         vk::DebugUtilsLabelEXT labelInfo{};
         labelInfo.setPLabelName("Shadow Pass");
         commandBuffer.beginDebugUtilsLabelEXT(labelInfo);
+#endif
 
         commandBuffer.beginRendering(renderingInfo);
         commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 0.0f, 1.0f));
@@ -208,7 +210,9 @@ namespace tr::Rendering::Vulkan {
 
     void ShadowPass::end(vk::raii::CommandBuffer& commandBuffer) {
         commandBuffer.endRendering();
+#ifndef NDEBUG
         commandBuffer.endDebugUtilsLabelEXT();
+#endif
         transitionImageLayout(
             commandBuffer,
             *_image.image,

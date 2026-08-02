@@ -18,6 +18,7 @@
     {
       "name": "windows-debug",
       "inherits": "base",
+      "binaryDir": "${sourceDir}/build/win-debug",
       "generator": "MinGW Makefiles",
       "condition": {
         "type": "equals",
@@ -35,6 +36,7 @@
     {
       "name": "windows-release",
       "inherits": "windows-debug",
+      "binaryDir": "${sourceDir}/build/win-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
