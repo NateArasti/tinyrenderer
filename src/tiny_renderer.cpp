@@ -210,7 +210,7 @@ namespace tr {
 
             Data::EmbeddedShaders::Shadow shadowShader;
             rhi->createShadowShader(shadowShader);
-            rhi->createBaseShaders(baseShader);
+            rhi->resources().createBaseShaders(baseShader);
 
             renderer = std::make_unique<Rendering::Renderer>(
                 *rhi,
@@ -269,7 +269,7 @@ namespace tr {
         void loadScene(const SceneFactory& sceneFactory) {
             renderer->clearState();
             currentScene = sceneFactory(Loading::LoadContext{
-                .renderingInterface = renderer->getInterface(),
+                .resources = renderer->getResources(),
             });
         }
 

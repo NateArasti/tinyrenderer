@@ -17,6 +17,7 @@ namespace tr::Rendering {
         RHI& _renderingInterface;
         std::vector<DrawCommand> _opaqueDrawQueue;
         std::vector<std::pair<DrawCommand, float>> _transparentDrawQueue;
+        std::vector<DrawCommand> _colorDrawQueue;
         
     public:
         explicit Renderer(RHI& rhi, tr::App::Window& window);
@@ -28,6 +29,7 @@ namespace tr::Rendering {
         Renderer& operator=(Renderer&&) = delete;
 
         RHI& getInterface() { return _renderingInterface; }
+        RenderingResources& getResources() { return _renderingInterface.resources(); }
 
         void clearState();
         void render(

@@ -29,7 +29,7 @@ namespace tr::Loading {
             material->name = "base";
             material->set("diffuseColor", glm::vec4(1, 1, 1, 1));
             auto handle = scene.materials.add(std::move(material));
-            ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
         }
 
@@ -38,7 +38,7 @@ namespace tr::Loading {
             material->name = "base";
             material->set("metallicFactor", 0.5f).set("roughnessFactor", 0.5f);
             auto handle = scene.materials.add(std::move(material));
-            ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
         }
 
@@ -84,7 +84,7 @@ namespace tr::Loading {
             }
             mesh.subMeshData.push_back(36);
             const auto bounds = scene.registerMesh(mesh);
-            return { ctx.renderingInterface.createMesh(mesh), bounds };
+            return { ctx.resources.createMesh(mesh), bounds };
         }
 
         UploadedMesh createPlaneMesh(Scene& scene, LoadContext ctx) {
@@ -99,7 +99,7 @@ namespace tr::Loading {
             mesh.subMeshData.push_back(6);
 
             const auto bounds = scene.registerMesh(mesh);
-            return { ctx.renderingInterface.createMesh(mesh), bounds };
+            return { ctx.resources.createMesh(mesh), bounds };
         }
     }
 

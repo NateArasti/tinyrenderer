@@ -145,7 +145,7 @@ namespace tr::Loading {
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const Handle<Texture> handle = ctx.renderingInterface.createTexture(texture);
+            const Handle<Texture> handle = ctx.resources.createTexture(texture);
             cache.emplace(std::move(cacheKey), handle);
             return handle;
         }
@@ -155,7 +155,7 @@ namespace tr::Loading {
             material->name = "default";
             material->set("diffuseColor", glm::vec4(1.0f));
             auto handle = scene.materials.add(std::move(material));
-            ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
         }
 
@@ -279,7 +279,7 @@ namespace tr::Loading {
                 material->set("roughnessFactor", std::clamp(roughness, 0.04f, 1.0f));
 
                 auto handle = scene.materials.add(std::move(material));
-                ctx.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+                ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
                 materials.push_back(handle);
             }
             return materials;
@@ -412,7 +412,7 @@ namespace tr::Loading {
 
             const auto bounds = scene.registerMesh(mesh);
             scene.includeBounds(bounds);
-            object->mesh = ctx.renderingInterface.createMesh(mesh);
+            object->mesh = ctx.resources.createMesh(mesh);
             scene.getObjects().push_back(std::move(object));
         }
 

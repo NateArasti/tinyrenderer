@@ -14,7 +14,7 @@ namespace tr::Rendering {
         : _window(window), _renderingInterface(rhi) { }
 
     void Renderer::clearState() {
-        _renderingInterface.clearResources();
+        _renderingInterface.resources().clear();
     }
 
     void Renderer::render(
@@ -84,27 +84,24 @@ namespace tr::Rendering {
                 continue;
             }
 
-            DrawCommand command {
-                .modelMatrix = sceneTransform * object->transform.getMatrix(),
-                .mesh = object->mesh,
-                .materials = std::span<const tr::Resources::Handle<tr::Data::Material>>(object->materials)
-            };
-
-            bool isOpaque = true;
-            for (const auto& materialHandle : object->materials) {
+            const glm::mat4 modelMatrix = sceneTransform * object->transform.getMatrix();
+            for (uint32_t subMeshIndex = 0; subMeshIndex < object->materials.size(); ++subMeshIndex) {
+                const auto materialHandle = object->materials[subMeshIndex];
+                DrawCommand command {
+                    .modelMatrix = modelMatrix,
+                    .mesh = object->mesh,
+                    .subMeshIndex = subMeshIndex,
+                    .material = materialHandle
+                };
                 const auto* material = scene.materials.get(materialHandle);
-                if (material && material->blendMode == tr::Data::BlendMode::Transparent) {
-                    isOpaque = false;
-                    break;
+                if (material == nullptr || material->blendMode == tr::Data::BlendMode::Opaque) {
+                    _opaqueDrawQueue.push_back(command);
                 }
-            }
-            if (isOpaque) {
-                _opaqueDrawQueue.push_back(command);
-            }
-            else {
-                glm::vec3 pos = glm::vec3(command.modelMatrix[3]);
-                float depth = glm::length(pos - cameraPosition);
-                _transparentDrawQueue.push_back({ command, depth });
+                else {
+                    const glm::vec3 position = glm::vec3(command.modelMatrix[3]);
+                    const float depth = glm::length(position - cameraPosition);
+                    _transparentDrawQueue.push_back({ command, depth });
+                }
             }
         }
         std::sort(_transparentDrawQueue.begin(), _transparentDrawQueue.end(),
@@ -113,20 +110,19 @@ namespace tr::Rendering {
             }
         );
 
-        _renderingInterface.startShadowPass();
-        for (const auto& command : _opaqueDrawQueue) {
-            _renderingInterface.drawShadows(command); // dedicated simplified rendering
-        }
-        _renderingInterface.endShadowPass();
+        _renderingInterface.renderShadowPass(_opaqueDrawQueue);
 
-        _renderingInterface.startColorPass();
-        for (const auto& command : _opaqueDrawQueue) {
-            _renderingInterface.draw(command);
-        }
+        _colorDrawQueue.clear();
+        _colorDrawQueue.reserve(_opaqueDrawQueue.size() + _transparentDrawQueue.size());
+        _colorDrawQueue.insert(
+            _colorDrawQueue.end(),
+            _opaqueDrawQueue.begin(),
+            _opaqueDrawQueue.end()
+        );
         for (const auto& [command, depth] : _transparentDrawQueue) {
-            _renderingInterface.draw(command);
+            _colorDrawQueue.push_back(command);
         }
-        _renderingInterface.endColorPass();
+        _renderingInterface.renderColorPass(_colorDrawQueue);
 
         _renderingInterface.drawUI(uiDrawData);
 

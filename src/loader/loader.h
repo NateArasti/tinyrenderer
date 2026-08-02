@@ -3,12 +3,12 @@
 #include <filesystem>
 #include <memory>
 
-#include "rhi.h"
+#include "rendering_resources.h"
 #include "scene.h"
 
 namespace tr::Loading {
     struct LoadContext {
-        tr::Rendering::RHI& renderingInterface;
+        tr::Rendering::RenderingResources& resources;
     };
 
     class Loader {

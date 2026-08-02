@@ -156,7 +156,7 @@ namespace tr::Loading {
                 }
             }
 
-            const auto handle = context.renderingInterface.createTexture(texture);
+            const auto handle = context.resources.createTexture(texture);
             cache.emplace(cacheKey, handle);
             return handle;
         }
@@ -168,7 +168,7 @@ namespace tr::Loading {
             material->set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
             material->set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
             const auto handle = scene.materials.add(std::move(material));
-            context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            context.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
         }
 
@@ -268,7 +268,7 @@ namespace tr::Loading {
                 }
 
                 const auto handle = scene.materials.add(std::move(material));
-                context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+                context.resources.registerMaterial(handle, *scene.materials.get(handle));
                 result.push_back(handle);
             }
             return result;
@@ -526,7 +526,7 @@ namespace tr::Loading {
             }
             const auto bounds = scene.registerMesh(mesh);
             return {
-                context.renderingInterface.createMesh(mesh),
+                context.resources.createMesh(mesh),
                 std::move(meshMaterials),
                 bounds
             };

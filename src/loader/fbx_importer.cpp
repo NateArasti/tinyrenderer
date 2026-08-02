@@ -205,7 +205,7 @@ namespace tr::Loading {
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const auto handle = context.renderingInterface.createTexture(texture);
+            const auto handle = context.resources.createTexture(texture);
             cache.emplace(cacheKey, handle);
             return handle;
         }
@@ -227,7 +227,7 @@ namespace tr::Loading {
             material->set("metallicFactor", 0.0f);
             material->set("roughnessFactor", 1.0f);
             const auto handle = scene.materials.add(std::move(material));
-            context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+            context.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
         }
 
@@ -342,7 +342,7 @@ namespace tr::Loading {
                 );
 
                 const auto handle = scene.materials.add(std::move(material));
-                context.renderingInterface.registerMaterial(handle, *scene.materials.get(handle));
+                context.resources.registerMaterial(handle, *scene.materials.get(handle));
                 result.emplace(source, handle);
             }
             return result;
@@ -476,7 +476,7 @@ namespace tr::Loading {
             const auto bounds = scene.registerMesh(mesh);
 
             return {
-                context.renderingInterface.createMesh(mesh),
+                context.resources.createMesh(mesh),
                 std::move(materialSlots),
                 bounds
             };

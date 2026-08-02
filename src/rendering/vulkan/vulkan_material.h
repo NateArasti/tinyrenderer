@@ -5,6 +5,7 @@
 
 #include "handle.h"
 #include "material.h"
+#include "vulkan_shader.h"
 
 namespace tr::Rendering::Vulkan {
     struct VulkanMaterial {
