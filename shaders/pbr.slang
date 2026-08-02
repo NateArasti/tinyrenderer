@@ -189,7 +189,7 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 radiance = sceneData.lightColor.rgb * sceneData.lightIntensity;
     float3 Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL * shadow;
 
-    float3 ambient = params.ambientColor.rgb * baseColor.rgb;
+    float3 ambient = kD * params.ambientColor.rgb * baseColor.rgb;
     float3 emission = params.emissionColor.rgb;
     if (params.hasEmissionMap > 0.5) {
         emission *= emissionMap.Sample(vertIn.uv).rgb;
