@@ -2,23 +2,23 @@
 
 #include <stdexcept>
 
+#include "shadow.h"
+#include "vulkan_utility.h"
+
 namespace tr::Rendering::Vulkan {
     ShadowPass::ShadowPass(
         VulkanContext& context,
         ResourceFactory& resourceFactory,
         VulkanResources& resources
-    ) : RenderPass(resources), _vulkanContext(context)
+    ) : _vulkanContext(context), _resources(resources)
     {
-        _image = resourceFactory.createImage(
-            SHADOW_MAP_SIZE, SHADOW_MAP_SIZE,
-            _format,
-            1,
-            vk::SampleCountFlagBits::e1,
-            vk::ImageTiling::eOptimal,
-            vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
-            vk::MemoryPropertyFlagBits::eDeviceLocal,
-            vk::ImageAspectFlagBits::eDepth
-        );
+        _image = resourceFactory.createImage({
+            .format = _format,
+            .extent = { SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1 },
+            .usage = vk::ImageUsageFlagBits::eDepthStencilAttachment |
+                vk::ImageUsageFlagBits::eSampled,
+            .aspectMask = vk::ImageAspectFlagBits::eDepth
+        });
 
         _vulkanContext.setDebugName(
             vk::ObjectType::eImage,
@@ -42,6 +42,9 @@ namespace tr::Rendering::Vulkan {
             .borderColor = vk::BorderColor::eFloatOpaqueWhite,
         };
         _sampler = vk::raii::Sampler(_vulkanContext.device, samplerInfo);
+
+        tr::Data::EmbeddedShaders::Shadow shader;
+        createPipeline(shader, bindingDescription(), attributeDescriptions());
     }
 
     void ShadowPass::createPipeline(
@@ -148,16 +151,28 @@ namespace tr::Rendering::Vulkan {
         );
     }
 
-    vk::DescriptorImageInfo ShadowPass::descriptorInfo() const {
+    vk::DescriptorImageInfo ShadowPass::shadowMap() const {
         return {
             .sampler = *_sampler,
             .imageView = *_image.view,
             .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
         };
     }
+
+    void ShadowPass::record(
+        vk::raii::CommandBuffer& commandBuffer,
+        const SceneData& sceneData,
+        std::span<const DrawCommand> drawCalls
+    ) {
+        begin(commandBuffer, sceneData);
+        for (const auto& drawCall : drawCalls) {
+            draw(commandBuffer, drawCall, sceneData);
+        }
+        end(commandBuffer);
+    }
     
-    void ShadowPass::begin(vk::raii::CommandBuffer& commandBuffer) {
-        transitionImageLayout(
+    void ShadowPass::begin(vk::raii::CommandBuffer& commandBuffer, const SceneData& sceneData) {
+        imageBarrier(
             commandBuffer,
             *_image.image,
             vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal,
@@ -191,7 +206,7 @@ namespace tr::Rendering::Vulkan {
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *_pipeline);
     }
 
-    void ShadowPass::draw(vk::raii::CommandBuffer& commandBuffer, const DrawCommand& command) {
+    void ShadowPass::draw(vk::raii::CommandBuffer& commandBuffer, const DrawCommand& command, const SceneData& sceneData) {
         const auto& mesh = _resources.mesh(command.mesh);
         commandBuffer.bindVertexBuffers(0, *mesh.vertexBuffer, { 0 });
         commandBuffer.bindIndexBuffer(*mesh.indexBuffer, 0, vk::IndexType::eUint32);
@@ -202,7 +217,7 @@ namespace tr::Rendering::Vulkan {
             _pipelineLayout,
             vk::ShaderStageFlagBits::eVertex,
             0,
-            vk::ArrayProxy<const glm::mat4>({ _context->sceneData->lightViewProj, command.modelMatrix })
+            vk::ArrayProxy<const glm::mat4>({ sceneData.lightViewProj, command.modelMatrix })
         );
         const auto& subMesh = mesh.subMeshesLayouts[command.subMeshIndex];
         commandBuffer.drawIndexed(subMesh.indexCount, 1, subMesh.firstIndex, 0, 0);
@@ -213,7 +228,7 @@ namespace tr::Rendering::Vulkan {
 #ifndef NDEBUG
         commandBuffer.endDebugUtilsLabelEXT();
 #endif
-        transitionImageLayout(
+        imageBarrier(
             commandBuffer,
             *_image.image,
             vk::ImageLayout::eDepthAttachmentOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,

@@ -4,121 +4,74 @@
 #include <stdexcept>
 
 namespace tr::Rendering::Vulkan {
-    ColorPass::ColorPass(
-        VulkanContext& context,
-        ResourceFactory& factory,
-        Swapchain& swapchain,
-        VulkanResources& resources
-    ) :
-        RenderPass(resources),
-        _vulkanContext(context),
-        _factory(factory),
-        _swapchain(swapchain)
-    {
-        createAttachments();
+    ColorPass::ColorPass(VulkanContext& context, GBuffer& gBuffer, VulkanResources& resources)
+        : _vulkanContext(context), _gBuffer(gBuffer), _resources(resources)
+    { }
+
+    void ColorPass::record(vk::raii::CommandBuffer& commandBuffer, const FrameContext& frame, std::span<const DrawCommand> drawCalls) {
+        begin(commandBuffer, frame);
+        for (const auto& drawCall : drawCalls) {
+            draw(commandBuffer, drawCall, frame);
+        }
+        end(commandBuffer);
     }
 
-    void ColorPass::createAttachments() {
-        _colorImage = _factory.createImage(
-            _swapchain.extent().width,
-            _swapchain.extent().height,
-            _swapchain.format(),
-            1,
-            _vulkanContext.msaaSamples,
-            vk::ImageTiling::eOptimal,
-            vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransientAttachment,
-            vk::MemoryPropertyFlagBits::eDeviceLocal,
-            vk::ImageAspectFlagBits::eColor
-        );
-        _depthImage = _factory.createImage(
-            _swapchain.extent().width,
-            _swapchain.extent().height,
-            _vulkanContext.depthFormat,
-            1,
-            _vulkanContext.msaaSamples,
-            vk::ImageTiling::eOptimal,
-            vk::ImageUsageFlagBits::eDepthStencilAttachment,
-            vk::MemoryPropertyFlagBits::eDeviceLocal,
-            vk::ImageAspectFlagBits::eDepth
-        );
-    }
-
-    void ColorPass::recreate() {
-        createAttachments();
-    }
-
-    void ColorPass::begin(vk::raii::CommandBuffer& commandBuffer) {
+    void ColorPass::begin(vk::raii::CommandBuffer& commandBuffer, const FrameContext& frame) {
 #ifndef NDEBUG
         vk::DebugUtilsLabelEXT labelInfo{};
         labelInfo.setPLabelName("Color Pass");
         commandBuffer.beginDebugUtilsLabelEXT(labelInfo);
 #endif
 
-        transitionImageLayout(
+        const bool multisampled = _vulkanContext.msaaSamples != vk::SampleCountFlagBits::e1;
+        imageBarrier(
             commandBuffer,
-            _context->targetImage,
-            vk::ImageLayout::eUndefined,
+            multisampled ? *_gBuffer.colorImage.image : frame.targetImage,
             vk::ImageLayout::eColorAttachmentOptimal,
-            {},
+            vk::ImageLayout::eColorAttachmentOptimal,
             vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite,
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
             vk::ImageAspectFlagBits::eColor
         );
-        const bool multisampled =
-            _vulkanContext.msaaSamples != vk::SampleCountFlagBits::e1;
-        if (multisampled) {
-            transitionImageLayout(
-                commandBuffer,
-                *_colorImage.image,
-                vk::ImageLayout::eUndefined,
-                vk::ImageLayout::eColorAttachmentOptimal,
-                vk::AccessFlagBits2::eColorAttachmentWrite,
-                vk::AccessFlagBits2::eColorAttachmentWrite,
-                vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-                vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-                vk::ImageAspectFlagBits::eColor
-            );
-        }
-        transitionImageLayout(
+        imageBarrier(
             commandBuffer,
-            *_depthImage.image,
+            *_gBuffer.depthImage.image,
             vk::ImageLayout::eUndefined,
             vk::ImageLayout::eDepthAttachmentOptimal,
+            {},
             vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-            vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
-            vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
-            vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests,
+            vk::PipelineStageFlagBits2::eTopOfPipe,
+            vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                vk::PipelineStageFlagBits2::eLateFragmentTests,
             vk::ImageAspectFlagBits::eDepth
         );
 
-        vk::ClearValue clearColor;
-        clearColor.color = vk::ClearColorValue(std::array<float, 4>{ 0.0f, 0.0f, 0.0f, 1.0f });
         const vk::RenderingAttachmentInfo colorAttachment{
-            .imageView = multisampled ? *_colorImage.view : _context->targetImageView,
+            .imageView = multisampled ? *_gBuffer.colorImage.view : frame.targetImageView,
             .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
             .resolveMode = multisampled
                 ? vk::ResolveModeFlagBits::eAverage
                 : vk::ResolveModeFlagBits::eNone,
-            .resolveImageView = multisampled ? _context->targetImageView : vk::ImageView{},
+            .resolveImageView = multisampled ? frame.targetImageView : vk::ImageView{},
             .resolveImageLayout = multisampled
                 ? vk::ImageLayout::eColorAttachmentOptimal
                 : vk::ImageLayout::eUndefined,
-            .loadOp = vk::AttachmentLoadOp::eClear,
+            .loadOp = vk::AttachmentLoadOp::eLoad,
             .storeOp = multisampled
                 ? vk::AttachmentStoreOp::eDontCare
                 : vk::AttachmentStoreOp::eStore,
-            .clearValue = clearColor
         };
         const vk::RenderingAttachmentInfo depthAttachment{
-            .imageView = *_depthImage.view,
+            .imageView = *_gBuffer.depthImage.view,
             .imageLayout = vk::ImageLayout::eDepthAttachmentOptimal,
             .loadOp = vk::AttachmentLoadOp::eClear,
             .storeOp = vk::AttachmentStoreOp::eDontCare,
             .clearValue = vk::ClearDepthStencilValue(1.0f, 0)
         };
         const vk::RenderingInfo renderingInfo{
-            .renderArea = { .offset = { 0, 0 }, .extent = _context->extent },
+            .renderArea = { .offset = { 0, 0 }, .extent = frame.extent },
             .layerCount = 1,
             .colorAttachmentCount = 1,
             .pColorAttachments = &colorAttachment,
@@ -128,15 +81,15 @@ namespace tr::Rendering::Vulkan {
         commandBuffer.setViewport(0, vk::Viewport(
             0.0f,
             0.0f,
-            static_cast<float>(_context->extent.width),
-            static_cast<float>(_context->extent.height),
+            static_cast<float>(frame.extent.width),
+            static_cast<float>(frame.extent.height),
             0.0f,
             1.0f
         ));
-        commandBuffer.setScissor(0, vk::Rect2D({ 0, 0 }, _context->extent));
+        commandBuffer.setScissor(0, vk::Rect2D({ 0, 0 }, frame.extent));
     }
 
-    void ColorPass::draw(vk::raii::CommandBuffer& commandBuffer, const DrawCommand& command) {
+    void ColorPass::draw(vk::raii::CommandBuffer& commandBuffer, const DrawCommand& command, const FrameContext& frame) {
         const auto& mesh = _resources.mesh(command.mesh);
         if (command.subMeshIndex >= mesh.subMeshesLayouts.size()) {
             throw std::runtime_error("Draw command references a missing submesh");
@@ -151,7 +104,7 @@ namespace tr::Rendering::Vulkan {
             vk::PipelineBindPoint::eGraphics,
             shader.pipelineLayout,
             0,
-            { _context->sceneDescriptorSet, *material.descriptorSet },
+            { frame.sceneDescriptorSet, *material.descriptorSet },
             nullptr
         );
         commandBuffer.pushConstants(

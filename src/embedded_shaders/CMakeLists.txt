@@ -34,12 +34,22 @@ endfunction()
 
 add_embedded_shader_code(pbr Pbr pbr.h "${SHADER_SOURCE_DIR}/light.slang")
 add_embedded_shader_code(shadow Shadow shadow.h)
+add_embedded_shader_code(skybox Skybox skybox.h)
+add_embedded_shader_code(
+    equirectangular_conversion
+    EquirectangularConversion
+    equirectangular_conversion.h
+)
 
 add_library(embedded_shaders STATIC
     pbr.h
     pbr.cpp
     shadow.h
     shadow.cpp
+    skybox.h
+    skybox.cpp
+    equirectangular_conversion.h
+    equirectangular_conversion.cpp
     ${EMBEDDED_SHADER_CODE_FILES}
 )
 

@@ -16,6 +16,7 @@
 #include <glm/glm.hpp>
 #include <imgui.h>
 
+#include "import_error.h"
 #include "application.h"
 #include "camera.h"
 #include "camera_controller.h"
@@ -26,11 +27,11 @@
 #include "pbr.h"
 #include "renderer.h"
 #include "loader.h"
-#include "shadow.h"
 #include "ui_data.h"
 #include "ui_provider.h"
 #include "vulkan_renderer.h"
 #include "window.h"
+#include "cubemap_loader.h"
 
 namespace tr {
     namespace {
@@ -59,15 +60,15 @@ namespace tr {
         std::unique_ptr<Rendering::Renderer> renderer;
         
         std::unique_ptr<Data::Scene> currentScene;
+        Data::Environment environment;
 
         Data::Camera camera;
         std::unique_ptr<Controllers::CameraController> cameraController;
 
-        Data::Light directionalLight;
-
         UI::UIState uiState;
         UI::UIWindow debugWindow;
         UI::UIWindow modelWindow;
+        UI::UIWindow envWindow;
         UI::UIWindow lightWindow;
         UI::UIWindow cameraWindow;
         std::string gpuName;
@@ -164,20 +165,38 @@ namespace tr {
                 }
             };
 
+            envWindow = UI::UIWindow{
+                .name = "Environment",
+                .drawCallback = [this]() {
+                    if (ImGui::Button("Load Skybox")) {
+                        loadSkybox();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Clear Skybox")) {
+                        renderer->getResources().destroyCubemap(environment.skyboxHandle);
+                        environment.skyboxHandle = {};
+                    }
+                    ImGui::Spacing();
+                    ImGui::ColorEdit3("Color", &environment.clearColor.x);
+
+                    drawImportErrorPopup();
+                }
+            };
+
             lightWindow = UI::UIWindow{
                 .name = "Light",
                 .height = 175.0f,
                 .drawCallback = [this]() {
-                    ImGui::Checkbox("Enabled", &directionalLight.enabled);
-                    ImGui::Checkbox("Shadows", &directionalLight.shadowsEnabled);
+                    ImGui::Checkbox("Enabled", &environment.directionalLight.enabled);
+                    ImGui::Checkbox("Shadows", &environment.directionalLight.shadowsEnabled);
                     ImGui::Separator();
-                    ImGui::BeginDisabled(!directionalLight.enabled);
+                    ImGui::BeginDisabled(!environment.directionalLight.enabled);
                     ImGui::DragFloat(
                         "Intensity",
-                        &directionalLight.intensity,
+                        &environment.directionalLight.intensity,
                         0.01f
                     );
-                    ImGui::ColorEdit3("Color", &directionalLight.color.x);
+                    ImGui::ColorEdit3("Color", &environment.directionalLight.color.x);
                     if (ImGui::SliderFloat("Yaw", &lightYaw, -180.0f, 180.0f, "%.1f°")) {
                         updateLightDirection();
                     }
@@ -238,15 +257,12 @@ namespace tr {
                 }
             };
 
-            uiState.leftWindows = { &modelWindow, &lightWindow };
+            uiState.leftWindows = { &modelWindow, &envWindow, &lightWindow };
             uiState.rightWindows = { &debugWindow, &cameraWindow };
         }
 
         void setupRendering() {
             rhi = std::make_unique<Rendering::Vulkan::VulkanRenderer>(application);
-
-            Data::EmbeddedShaders::Shadow shadowShader;
-            rhi->createShadowShader(shadowShader);
             rhi->resources().createBaseShaders(baseShader);
 
             renderer = std::make_unique<Rendering::Renderer>(
@@ -265,7 +281,7 @@ namespace tr {
         }
 
         void setupLight() {
-            directionalLight = {
+            environment.directionalLight = {
                 .direction = glm::vec3(0.5f, -1.0f, 0.5f),
                 .intensity = 5.0f,
                 .color = glm::vec4(1.0f)
@@ -312,9 +328,50 @@ namespace tr {
             });
         }
 
+        void loadSkybox() {
+            auto filePicker = App::createFilePicker();
+            filePicker->requestFile({
+                .title = "Load Skybox",
+                .filters = {
+                    { "Images", "*.png;*.jpg;*.jpeg;*.hdr;*.exr" },
+                    { "All files", "*.*" }
+                }
+            });
+            auto path = filePicker->pollResult();
+
+            if (!path) {
+                fmt::println("No file was selected");
+                return;
+            }
+
+            fmt::println("Loading file {}", path->string());
+
+            renderer->getResources().destroyCubemap(environment.skyboxHandle);
+            environment.skyboxHandle = {};
+
+            try {
+                auto cubemap = tr::Loading::CubemapLoader::loadCubemap(path.value(), renderer->getResources());
+                environment.skyboxHandle = renderer->getResources().createCubemap(*cubemap);
+            }
+            catch (const Loading::ImportError& error) {
+                importError = error.what();
+                fmt::println("Skybox import failed: {}", importError);
+                importErrorPopupPending = true;
+                showUI = true;
+                syncSceneUI();
+                return;
+            }
+        }
+
         void loadSelectedModel() {
             auto filePicker = App::createFilePicker();
-            filePicker->requestModelFile();
+            filePicker->requestFile({
+                .title = "Load Model",
+                .filters = {
+                    { "3D models", "*.obj;*.gltf;*.glb;*.fbx" },
+                    { "All files", "*.*" }
+                }
+            });
             auto path = filePicker->pollResult();
 
             if (!path) {
@@ -373,7 +430,7 @@ namespace tr {
         }
 
         void syncSceneUI() {
-            const glm::vec3 direction = glm::normalize(directionalLight.direction);
+            const glm::vec3 direction = glm::normalize(environment.directionalLight.direction);
             lightYaw = glm::degrees(std::atan2(direction.x, direction.z));
             lightPitch = glm::degrees(std::asin(std::clamp(direction.y, -1.0f, 1.0f)));
         }
@@ -381,7 +438,7 @@ namespace tr {
         void updateLightDirection() {
             const float yaw = glm::radians(lightYaw);
             const float pitch = glm::radians(lightPitch);
-            directionalLight.direction = glm::vec3(
+            environment.directionalLight.direction = glm::vec3(
                 std::cos(pitch) * std::sin(yaw),
                 std::sin(pitch),
                 std::cos(pitch) * std::cos(yaw)
@@ -433,7 +490,7 @@ namespace tr {
                 }
 
                 if (window.width() != 0 && window.height() != 0) {
-                    renderer->render(*currentScene, camera, directionalLight, uiDrawData);
+                    renderer->render(*currentScene, camera, environment, uiDrawData);
                 }
             }
 

@@ -9,6 +9,7 @@
 #include "rendering_resources.h"
 #include "shader.h"
 #include "scene_data.h"
+#include "environment.h"
 
 namespace tr::Rendering {
     class RHI {
@@ -27,10 +28,10 @@ namespace tr::Rendering {
         virtual std::vector<uint32_t> getSupportedMsaaSamples() const = 0;
         virtual void setMsaaSamples(uint32_t samples) = 0;
 
-        virtual void createShadowShader(const tr::Data::Shader& shader) = 0;
         virtual RenderingResources& resources() = 0;
 
         virtual void startFrame(const tr::Rendering::SceneData& sceneData) = 0;
+        virtual void renderSkybox(const tr::Data::Environment& environment) = 0;
         virtual void renderShadowPass(std::span<const DrawCommand> commands) = 0;
         virtual void renderColorPass(std::span<const DrawCommand> commands) = 0;
         virtual void prepareUI() = 0;

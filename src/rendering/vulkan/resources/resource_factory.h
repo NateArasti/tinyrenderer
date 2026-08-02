@@ -7,11 +7,36 @@
 #define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
 #include <vulkan/vulkan_raii.hpp>
 
-#include "vulkan_context.h"
-#include "gpu_buffer.h"
-#include "gpu_image.h"
+#include "../vulkan_context.h"
+#include "../utility/gpu_buffer.h"
+#include "../utility/gpu_image.h"
 
 namespace tr::Rendering::Vulkan {
+    struct ImageDescription {
+        vk::ImageCreateFlags flags{};
+        vk::ImageType imageType = vk::ImageType::e2D;
+        vk::ImageViewType viewType = vk::ImageViewType::e2D;
+        vk::Format format = vk::Format::eUndefined;
+        vk::Extent3D extent{ 1, 1, 1 };
+        uint32_t mipLevels = 1;
+        uint32_t arrayLayers = 1;
+        vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1;
+        vk::ImageTiling tiling = vk::ImageTiling::eOptimal;
+        vk::ImageUsageFlags usage{};
+        vk::MemoryPropertyFlags memoryProperties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+        vk::ImageAspectFlags aspectMask = vk::ImageAspectFlagBits::eColor;
+    };
+
+    struct ImageViewDescription {
+        vk::ImageViewType viewType = vk::ImageViewType::e2D;
+        vk::Format format = vk::Format::eUndefined;
+        vk::ImageAspectFlags aspectMask = vk::ImageAspectFlagBits::eColor;
+        uint32_t baseMipLevel = 0;
+        uint32_t mipLevels = 1;
+        uint32_t baseArrayLayer = 0;
+        uint32_t arrayLayers = 1;
+    };
+
     class ResourceFactory {
     private:
         VulkanContext& _vulkanContext;
@@ -51,16 +76,8 @@ namespace tr::Rendering::Vulkan {
         ResourceFactory(ResourceFactory&&) = delete;
         ResourceFactory& operator=(ResourceFactory&&) = delete;
 
-        GPUImage createImage(
-            uint32_t width, uint32_t height,
-            vk::Format format,
-            uint32_t mipLevels,
-            vk::SampleCountFlagBits samples,
-            vk::ImageTiling tiling,
-            vk::ImageUsageFlags usage,
-            vk::MemoryPropertyFlags properties, 
-            vk::ImageAspectFlags aspectFlags
-        );
+        GPUImage createImage(const ImageDescription& description);
+        vk::raii::ImageView createImageView(const vk::raii::Image& target, const ImageViewDescription& description);
 
         GPUBuffer createBuffer(
             vk::DeviceSize size,

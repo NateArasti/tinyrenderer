@@ -8,12 +8,24 @@
 
 namespace tr::App {
     namespace {
+        std::wstring widen(const std::string& value) {
+            if (value.empty()) return {};
+            const int size = MultiByteToWideChar(
+                CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0
+            );
+            std::wstring result(size, L'\0');
+            MultiByteToWideChar(
+                CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), size
+            );
+            return result;
+        }
+
         class WindowsFilePicker final : public FilePicker {
         private:
             std::optional<std::filesystem::path> _result;
 
         public:
-            void requestModelFile() override {
+            void requestFile(const FilePickerOptions& options) override {
                 _result.reset();
 
                 const HRESULT initializeResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -27,11 +39,25 @@ namespace tr::App {
                     IID_PPV_ARGS(&dialog)
                 );
                 if (SUCCEEDED(createResult)) {
-                    const COMDLG_FILTERSPEC filters[] = {
-                        { L"3D models", L"*.obj;*.gltf;*.glb;*.fbx" },
-                        { L"All files", L"*.*" }
-                    };
-                    dialog->SetFileTypes(std::size(filters), filters);
+                    const std::wstring title = widen(options.title);
+                    if (!title.empty()) dialog->SetTitle(title.c_str());
+
+                    std::vector<std::wstring> names;
+                    std::vector<std::wstring> patterns;
+                    names.reserve(options.filters.size());
+                    patterns.reserve(options.filters.size());
+                    for (const auto& filter : options.filters) {
+                        names.push_back(widen(filter.name));
+                        patterns.push_back(widen(filter.pattern));
+                    }
+                    std::vector<COMDLG_FILTERSPEC> filters;
+                    filters.reserve(options.filters.size());
+                    for (size_t i = 0; i < options.filters.size(); ++i) {
+                        filters.push_back({ names[i].c_str(), patterns[i].c_str() });
+                    }
+                    if (!filters.empty()) {
+                        dialog->SetFileTypes(static_cast<UINT>(filters.size()), filters.data());
+                    }
 
                     if (SUCCEEDED(dialog->Show(nullptr))) {
                         IShellItem* item = nullptr;

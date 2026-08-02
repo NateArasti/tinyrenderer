@@ -5,8 +5,8 @@
 
 namespace tr::Rendering::Vulkan {
     struct GPUBuffer {
-        vk::raii::Buffer buffer;
-        vk::raii::DeviceMemory memory;
-        vk::DeviceSize size;
+        vk::raii::Buffer buffer = nullptr;
+        vk::raii::DeviceMemory memory = nullptr;
+        vk::DeviceSize size = 0;
     };
 }

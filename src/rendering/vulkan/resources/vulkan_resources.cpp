@@ -5,27 +5,9 @@
 #include <ranges>
 #include <stdexcept>
 
+#include "../utility/vulkan_utility.h"
+
 namespace tr::Rendering::Vulkan {
-    namespace {
-        vk::VertexInputBindingDescription bindingDescription() {
-            return {
-                .binding = 0,
-                .stride = sizeof(tr::Data::Mesh::Vertex),
-                .inputRate = vk::VertexInputRate::eVertex
-            };
-        }
-
-        std::array<vk::VertexInputAttributeDescription, 4> attributeDescriptions() {
-            using Vertex = tr::Data::Mesh::Vertex;
-            return {{
-                { .location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, position) },
-                { .location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, normal) },
-                { .location = 2, .binding = 0, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, uv) },
-                { .location = 3, .binding = 0, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(Vertex, color) }
-            }};
-        }
-    }
-
     VulkanResources::VulkanResources(
         VulkanContext& context,
         ResourceFactory& factory,
@@ -34,6 +16,7 @@ namespace tr::Rendering::Vulkan {
     ) :
         _context(context),
         _factory(factory),
+        _cubemapConverter(_context, _factory),
         _sceneDescriptorSetLayout(sceneDescriptorSetLayout),
         _colorFormat(colorFormat)
     {
@@ -314,6 +297,60 @@ namespace tr::Rendering::Vulkan {
         return handle;
     }
 
+    tr::Resources::Handle<tr::Data::Cubemap> VulkanResources::createCubemap(const tr::Data::Cubemap& source) {
+        const size_t expectedPixelCount = static_cast<size_t>(source.width) * source.height * 4;
+        if (source.width == 0 || source.height == 0 || source.pixels.size() != expectedPixelCount) {
+            throw std::invalid_argument("Cubemap source must contain RGBA float pixels");
+        }
+
+        const vk::Format sourceFormat = vk::Format::eR32G32B32A32Sfloat;
+        const vk::Format destinationFormat = source.hdr
+            ? vk::Format::eR16G16B16A16Sfloat
+            : vk::Format::eR8G8B8A8Srgb;
+
+        GPUImage sourceImage = _factory.uploadTexture(
+            std::as_bytes(std::span(source.pixels)),
+            source.width,
+            source.height,
+            sourceFormat,
+            false
+        );
+
+        VulkanCubemap result {
+            .handle = { _cubemapIndex++, _generation }
+        };
+
+        result.image = _cubemapConverter.convertEquirectangular(
+            sourceImage,
+            destinationFormat
+        );
+
+        result.sampler = vk::raii::Sampler(
+            _context.device,
+            vk::SamplerCreateInfo{
+                .magFilter = vk::Filter::eLinear,
+                .minFilter = vk::Filter::eLinear,
+                .mipmapMode = vk::SamplerMipmapMode::eLinear,
+                .addressModeU = vk::SamplerAddressMode::eClampToEdge,
+                .addressModeV = vk::SamplerAddressMode::eClampToEdge,
+                .addressModeW = vk::SamplerAddressMode::eClampToEdge
+            }
+        );
+
+        const auto handle = result.handle;
+        _cubemaps.emplace(handle, std::move(result));
+        return handle;
+    }
+
+    void VulkanResources::destroyCubemap(Resources::Handle<Data::Cubemap> handle) {
+        if (!handle.isValid()) {
+            return;
+        }
+
+        _context.device.waitIdle();
+        _cubemaps.erase(handle);
+    }
+
     tr::Resources::Handle<tr::Data::Mesh> VulkanResources::createMesh(const tr::Data::Mesh& mesh) {
         VulkanMesh result{ .handle = { _meshIndex++, _generation } };
         auto vertices = _factory.uploadBuffer(
@@ -440,5 +477,10 @@ namespace tr::Rendering::Vulkan {
         const auto found = _materials.find(handle);
         if (found == _materials.end()) throw std::runtime_error("Can't use unregistered material");
         return found->second;
+    }
+
+    const VulkanCubemap* VulkanResources::cubemap(Resources::Handle<Data::Cubemap> handle) const {
+        const auto found = _cubemaps.find(handle);
+        return found == _cubemaps.end() ? nullptr : &found->second;
     }
 }

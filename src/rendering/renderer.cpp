@@ -20,7 +20,7 @@ namespace tr::Rendering {
     void Renderer::render(
         const tr::Data::Scene& scene,
         const tr::Data::Camera& camera,
-        const tr::Data::Light& light,
+        const tr::Data::Environment& env,
         ImDrawData* uiDrawData
     ) {
         const float aspect = static_cast<float>(_window.width()) / static_cast<float>(_window.height());
@@ -52,7 +52,7 @@ namespace tr::Rendering {
         const glm::vec3 scaledSceneCenter = sceneCenter * scene.scale;
         const glm::vec3 scaledSceneSize = sceneSize * glm::abs(scene.scale);
         float sceneRadius = 2 * std::max(std::max(scaledSceneSize.x, scaledSceneSize.y), scaledSceneSize.z);
-        glm::vec3 dir = glm::normalize(light.direction);
+        glm::vec3 dir = glm::normalize(env.directionalLight.direction);
         float padding = sceneRadius;
         glm::vec3 eye = scaledSceneCenter - dir * (sceneRadius + padding);
         glm::vec3 up = glm::abs(dir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
@@ -68,12 +68,14 @@ namespace tr::Rendering {
             .view = glm::inverse(camera.transform.getMatrix()),
             .proj = cameraProjection,
             .cameraPos = camera.transform.position,
-            .lightIntensity = light.enabled ? light.intensity : 0.0f,
-            .lightDirection = light.direction,
-            .lightColor = light.color,
+            .lightIntensity = env.directionalLight.enabled ? env.directionalLight.intensity : 0.0f,
+            .lightDirection = env.directionalLight.direction,
+            .lightColor = env.directionalLight.color,
             .lightViewProj = lightViewProj,
         };
         _renderingInterface.startFrame(sceneData);
+        
+        _renderingInterface.renderSkybox(env);
 
         auto cameraPosition = camera.transform.position;
         _opaqueDrawQueue.clear();
@@ -110,7 +112,7 @@ namespace tr::Rendering {
             }
         );
 
-        const bool renderShadows = light.enabled && light.shadowsEnabled;
+        const bool renderShadows = env.directionalLight.enabled && env.directionalLight.shadowsEnabled;
         _renderingInterface.renderShadowPass(
             renderShadows
                 ? _opaqueDrawQueue

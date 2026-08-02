@@ -21,6 +21,8 @@
 
 #include "stb_image.h"
 
+#include "import_error.h"
+
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"

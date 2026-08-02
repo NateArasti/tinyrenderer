@@ -7,6 +7,7 @@
 
 #include "rhi.h"
 #include "scene.h"
+#include "environment.h"
 #include "camera.h"
 #include "window.h"
 
@@ -35,7 +36,7 @@ namespace tr::Rendering {
         void render(
             const tr::Data::Scene& scene,
             const tr::Data::Camera& camera,
-            const tr::Data::Light& light,
+            const tr::Data::Environment& env,
             ImDrawData* uiDrawData
         );
     };

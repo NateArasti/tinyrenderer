@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "scene_data.h"
+#include "vulkan_utility.h"
 
 namespace tr::Rendering::Vulkan {
     namespace {
@@ -40,8 +41,21 @@ namespace tr::Rendering::Vulkan {
             _descriptorSetLayout,
             _swapchain.format()
         );
+        _gBuffer = std::make_unique<GBuffer>(
+            _vulkanContext,
+            _resourceFactory,
+            _swapchain
+        );
+        _skyboxPass = std::make_unique<SkyboxPass>(
+            _vulkanContext,
+            *_resources,
+            *_gBuffer,
+            _resourceFactory,
+            *_descriptorSetLayout,
+            _swapchain.format()
+        );
         _shadowPass = std::make_unique<ShadowPass>(_vulkanContext, _resourceFactory, *_resources);
-        _colorPass = std::make_unique<ColorPass>(_vulkanContext, _resourceFactory, _swapchain, *_resources);
+        _colorPass = std::make_unique<ColorPass>(_vulkanContext, *_gBuffer, *_resources);
         _uiPass = std::make_unique<UIPass>(_vulkanContext, _swapchain);
         createCommandPool();
         createCommandBuffers();
@@ -100,7 +114,8 @@ namespace tr::Rendering::Vulkan {
 
         _vulkanContext.device.waitIdle();
         _vulkanContext.msaaSamples = sampleCount;
-        _colorPass->recreate();
+        _gBuffer->recreate();
+        _skyboxPass->recreate(_swapchain.format());
         _resources->recreateBaseShaders(_swapchain.format());
     }
 
@@ -144,48 +159,9 @@ namespace tr::Rendering::Vulkan {
         }};
     }
 
-    void VulkanRenderer::transitionImageLayout(
-	    vk::Image image,
-	    vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-	    vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
-        vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask,
-        vk::ImageAspectFlags image_aspect_flags
-    ) {
-        vk::ImageMemoryBarrier2 barrier = {
-            .srcStageMask = src_stage_mask,
-            .srcAccessMask = src_access_mask,
-            .dstStageMask = dst_stage_mask,
-            .dstAccessMask = dst_access_mask,
-            .oldLayout = old_layout,
-            .newLayout = new_layout,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = image,
-            .subresourceRange = {
-                .aspectMask = image_aspect_flags,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 1
-            }
-        };
-        vk::DependencyInfo dependency_info = {
-            .dependencyFlags = {},
-            .imageMemoryBarrierCount = 1,
-            .pImageMemoryBarriers = &barrier
-        };
-        _commandBuffers[_currentFrame].pipelineBarrier2(dependency_info);
-    }
-
-
 #pragma endregion
 
 #pragma region Vulkan initialization
-
-    void VulkanRenderer::createShadowShader(const tr::Data::Shader& shader) {
-        _shadowPass->createPipeline(shader, getBindingDescription(), getAttributeDescriptions());
-    }
-
 	void VulkanRenderer::createDescriptorSetLayout() {
 		std::array bindings = {
             vk::DescriptorSetLayoutBinding(
@@ -285,7 +261,7 @@ namespace tr::Rendering::Vulkan {
                 .descriptorType = vk::DescriptorType::eUniformBuffer,
                 .pBufferInfo = &bufferInfo
             };
-            vk::DescriptorImageInfo shadowMapInfo = _shadowPass->descriptorInfo();
+            vk::DescriptorImageInfo shadowMapInfo = _shadowPass->shadowMap();
             vk::WriteDescriptorSet shadowMapDescriptorWrite{
                 .dstSet = _descriptorSets[i],
                 .dstBinding = 1,
@@ -321,8 +297,9 @@ namespace tr::Rendering::Vulkan {
             _application.window->width(),
             _application.window->height()
         );
-        _colorPass->recreate();
+        _gBuffer->recreate();
         if (_swapchain.format() != oldFormat) {
+            _skyboxPass->recreate(_swapchain.format());
             _resources->recreateBaseShaders(_swapchain.format());
         }
         _uiPass->recreate(_swapchain);
@@ -382,6 +359,19 @@ namespace tr::Rendering::Vulkan {
         vk::CommandBufferBeginInfo beginInfo{};
         commandBuffer.begin(beginInfo);
 
+        imageBarrier(
+            commandBuffer,
+            _swapchain.image(_currentImageIndex),
+            vk::ImageLayout::eUndefined,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            {},
+            vk::AccessFlagBits2::eColorAttachmentRead |
+                vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::PipelineStageFlagBits2::eTopOfPipe,
+            vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            vk::ImageAspectFlagBits::eColor
+        );
+
         _lastSceneData = sceneData;
         // Flip Y axis for Vulkan clip space
         _lastSceneData.proj[1][1] *= -1;
@@ -390,28 +380,41 @@ namespace tr::Rendering::Vulkan {
         _frameStarted = true;
     }
 
+    void VulkanRenderer::renderSkybox(const tr::Data::Environment& environment) {
+        if (!_frameStarted) return;
+
+        _skyboxPass->record(
+            _commandBuffers[_currentFrame],
+            FrameContext{
+                .sceneDescriptorSet = *_descriptorSets[_currentFrame],
+                .targetImage = _swapchain.image(_currentImageIndex),
+                .targetImageView = *_swapchain.imageView(_currentImageIndex),
+                .extent = _swapchain.extent()
+            },
+            environment
+        );
+    }
 
     void VulkanRenderer::renderShadowPass(std::span<const DrawCommand> commands) {
         if (!_frameStarted) return;
-        _shadowPass->render(
+        _shadowPass->record(
             _commandBuffers[_currentFrame],
-            commands,
-            RenderPass::Context{ .sceneData = &_lastSceneData }
+            _lastSceneData,
+            commands
         );
     }
 
     void VulkanRenderer::renderColorPass(std::span<const DrawCommand> commands) {
         if (!_frameStarted) return;
-        _colorPass->render(
+        _colorPass->record(
             _commandBuffers[_currentFrame],
-            commands,
-            RenderPass::Context{
-                .sceneData = &_lastSceneData,
+            FrameContext{
                 .sceneDescriptorSet = *_descriptorSets[_currentFrame],
                 .targetImage = _swapchain.image(_currentImageIndex),
                 .targetImageView = *_swapchain.imageView(_currentImageIndex),
                 .extent = _swapchain.extent()
-            }
+            },
+            commands
         );
     }
 
@@ -445,7 +448,8 @@ namespace tr::Rendering::Vulkan {
 
         auto& commandBuffer = _commandBuffers[_currentFrame];
 
-        transitionImageLayout(
+        imageBarrier(
+            _commandBuffers[_currentFrame],
             _swapchain.image(_currentImageIndex),
             vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
             vk::AccessFlagBits2::eColorAttachmentWrite, {},

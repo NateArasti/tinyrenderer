@@ -1,21 +1,30 @@
-#include "render_pass.h"
+#pragma once
+
+#define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
+#include <vulkan/vulkan_raii.hpp>
+
+#include "mesh.h"
 
 namespace tr::Rendering::Vulkan {
-    void RenderPass::render(
-        vk::raii::CommandBuffer& commandBuffer,
-        std::span<const DrawCommand> commands,
-        const Context& context
-    ) {
-        _context = &context;
-        begin(commandBuffer);
-        for (const auto& command : commands) {
-            draw(commandBuffer, command);
-        }
-        end(commandBuffer);
-        _context = nullptr;
+    static vk::VertexInputBindingDescription bindingDescription() {
+        return {
+            .binding = 0,
+            .stride = sizeof(tr::Data::Mesh::Vertex),
+            .inputRate = vk::VertexInputRate::eVertex
+        };
     }
 
-    void RenderPass::transitionImageLayout(
+    static std::array<vk::VertexInputAttributeDescription, 4> attributeDescriptions() {
+        using Vertex = tr::Data::Mesh::Vertex;
+        return {{
+            { .location = 0, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, position) },
+            { .location = 1, .binding = 0, .format = vk::Format::eR32G32B32Sfloat, .offset = offsetof(Vertex, normal) },
+            { .location = 2, .binding = 0, .format = vk::Format::eR32G32Sfloat, .offset = offsetof(Vertex, uv) },
+            { .location = 3, .binding = 0, .format = vk::Format::eR32G32B32A32Sfloat, .offset = offsetof(Vertex, color) }
+        }};
+    }
+
+    static void imageBarrier(
         vk::raii::CommandBuffer& commandBuffer,
         vk::Image image,
         vk::ImageLayout old_layout, vk::ImageLayout new_layout,
@@ -48,4 +57,11 @@ namespace tr::Rendering::Vulkan {
         };
         commandBuffer.pipelineBarrier2(dependency_info);
     }
+
+    struct FrameContext {
+        vk::DescriptorSet sceneDescriptorSet;
+        vk::Image targetImage;
+        vk::ImageView targetImageView;
+        vk::Extent2D extent;
+    };
 }

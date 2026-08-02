@@ -5,6 +5,7 @@
 #include "mesh.h"
 #include "shader.h"
 #include "texture.h"
+#include "cubemap.h"
 
 namespace tr::Rendering {
     class RenderingResources {
@@ -19,5 +20,8 @@ namespace tr::Rendering {
             const tr::Data::Material& material
         ) = 0;
         virtual void clear() = 0;
+        
+        virtual tr::Resources::Handle<tr::Data::Cubemap> createCubemap(const tr::Data::Cubemap& cubemap) = 0;
+        virtual void destroyCubemap(Resources::Handle<Data::Cubemap> handle) = 0;
     };
 }

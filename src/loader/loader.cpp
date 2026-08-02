@@ -14,6 +14,8 @@
 #include "fbx_importer.h"
 #include "obj_importer.h"
 
+#include "import_error.h"
+
 namespace tr::Loading {
     namespace {
         using namespace tr::Data;

@@ -7,16 +7,20 @@
 #define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
 #include <vulkan/vulkan_raii.hpp>
 
-#include "gpu_buffer.h"
-#include "gpu_image.h"
-
 #include "vulkan_context.h"
-#include "resource_factory.h"
 #include "swapchain.h"
-#include "shadow_pass.h"
-#include "color_pass.h"
-#include "ui_pass.h"
-#include "vulkan_resources.h"
+#include "gbuffer.h"
+
+#include "utility/gpu_buffer.h"
+#include "utility/gpu_image.h"
+
+#include "resources/resource_factory.h"
+#include "resources/vulkan_resources.h"
+
+#include "passes/skybox_pass.h"
+#include "passes/shadow_pass.h"
+#include "passes/color_pass.h"
+#include "passes/ui_pass.h"
 
 #include "application.h"
 #include "rhi.h"
@@ -33,6 +37,8 @@ namespace tr::Rendering::Vulkan {
         Swapchain _swapchain;
 
         std::unique_ptr<VulkanResources> _resources;
+        std::unique_ptr<GBuffer> _gBuffer;
+        std::unique_ptr<SkyboxPass> _skyboxPass;
         std::unique_ptr<ShadowPass> _shadowPass;
         std::unique_ptr<ColorPass> _colorPass;
         std::unique_ptr<UIPass> _uiPass;
@@ -73,14 +79,6 @@ namespace tr::Rendering::Vulkan {
         void createSyncObjects();
         void recreateSwapchain();
 
-        void transitionImageLayout(
-            vk::Image image,
-            vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-            vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
-            vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask,
-            vk::ImageAspectFlags image_aspect_flags
-        );
-
     public:
         explicit VulkanRenderer(const tr::App::Application& application);
         ~VulkanRenderer();
@@ -99,10 +97,10 @@ namespace tr::Rendering::Vulkan {
         std::vector<uint32_t> getSupportedMsaaSamples() const override;
         void setMsaaSamples(uint32_t samples) override;
 
-        void createShadowShader(const tr::Data::Shader& shader) override;
         RenderingResources& resources() override { return *_resources; }
         
         void startFrame(const tr::Rendering::SceneData& sceneData) override;
+        void renderSkybox(const tr::Data::Environment& environment) override;
         void renderShadowPass(std::span<const tr::Rendering::DrawCommand> commands) override;
         void renderColorPass(std::span<const tr::Rendering::DrawCommand> commands) override;
         void prepareUI() override;

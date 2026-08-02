@@ -224,25 +224,17 @@ namespace tr::Rendering::Vulkan {
 		throw std::runtime_error("failed to find suitable memory type!");
 	}
 
-    GPUImage ResourceFactory::createImage(
-        uint32_t width, uint32_t height,
-        vk::Format format,
-        uint32_t mipLevels,
-        vk::SampleCountFlagBits samples,
-        vk::ImageTiling tiling,
-        vk::ImageUsageFlags usage,
-        vk::MemoryPropertyFlags properties, 
-        vk::ImageAspectFlags aspectFlags
-    ) {
+    GPUImage ResourceFactory::createImage(const ImageDescription& description) {
         vk::ImageCreateInfo imageInfo{
-            .imageType = vk::ImageType::e2D,
-            .format = format,
-            .extent = { width, height, 1 },
-            .mipLevels = mipLevels,
-            .arrayLayers = 1,
-            .samples = samples,
-            .tiling = tiling,
-            .usage = usage,
+            .flags = description.flags,
+            .imageType = description.imageType,
+            .format = description.format,
+            .extent = description.extent,
+            .mipLevels = description.mipLevels,
+            .arrayLayers = description.arrayLayers,
+            .samples = description.samples,
+            .tiling = description.tiling,
+            .usage = description.usage,
             .sharingMode = vk::SharingMode::eExclusive,
             .initialLayout = vk::ImageLayout::eUndefined
         };
@@ -250,31 +242,49 @@ namespace tr::Rendering::Vulkan {
         auto memReqs = image.getMemoryRequirements();
         vk::raii::DeviceMemory memory(_vulkanContext.device, vk::MemoryAllocateInfo{
             .allocationSize = memReqs.size,
-            .memoryTypeIndex = findMemoryType(memReqs.memoryTypeBits, properties)
+            .memoryTypeIndex = findMemoryType(
+                memReqs.memoryTypeBits,
+                description.memoryProperties
+            )
         });
         image.bindMemory(*memory, 0);
-        vk::ImageViewCreateInfo viewInfo{
-		    .image = image,
-		    .viewType = vk::ImageViewType::e2D,
-		    .format = format,
-            .subresourceRange = {
-                .aspectMask = aspectFlags,
-                .baseMipLevel = 0,
-                .levelCount = mipLevels,
-                .baseArrayLayer = 0,
-                .layerCount = 1
-            }
-        };
-        vk::raii::ImageView imageView(_vulkanContext.device, viewInfo);
+        vk::raii::ImageView imageView = createImageView(image, {
+            .viewType = description.viewType,
+            .format = description.format,
+            .aspectMask = description.aspectMask,
+            .mipLevels = description.mipLevels,
+            .arrayLayers = description.arrayLayers,
+        });
         return GPUImage{
             .image = std::move(image),
             .memory = std::move(memory),
             .view = std::move(imageView),
-            .format = format,
-            .extent = { width, height },
-            .mipLevels = mipLevels,
-            .samples = samples
+            .format = description.format,
+            .extent = description.extent,
+            .mipLevels = description.mipLevels,
+            .arrayLayers = description.arrayLayers,
+            .samples = description.samples,
+            .aspectMask = description.aspectMask
         };
+    }
+
+    vk::raii::ImageView ResourceFactory::createImageView(
+        const vk::raii::Image& target,
+        const ImageViewDescription& description
+    ) {
+        vk::ImageViewCreateInfo viewInfo{
+		    .image = *target,
+		    .viewType = description.viewType,
+		    .format = description.format,
+            .subresourceRange = {
+                .aspectMask = description.aspectMask,
+                .baseMipLevel = description.baseMipLevel,
+                .levelCount = description.mipLevels,
+                .baseArrayLayer = description.baseArrayLayer,
+                .layerCount = description.arrayLayers
+            }
+        };
+        return vk::raii::ImageView(_vulkanContext.device, viewInfo);
     }
 
     GPUBuffer ResourceFactory::createBuffer(
@@ -351,16 +361,12 @@ namespace tr::Rendering::Vulkan {
             usage |= vk::ImageUsageFlagBits::eTransferSrc;
         }
 
-        GPUImage image = createImage(
-            width, height,
-            format,
-            mipLevels,
-            vk::SampleCountFlagBits::e1,
-            vk::ImageTiling::eOptimal,
-            usage,
-            vk::MemoryPropertyFlagBits::eDeviceLocal,
-            vk::ImageAspectFlagBits::eColor
-        );
+        GPUImage image = createImage({
+            .format = format,
+            .extent = { width, height, 1 },
+            .mipLevels = mipLevels,
+            .usage = usage
+        });
 
         transitionImageLayout(
             image.image,
