@@ -68,7 +68,7 @@ namespace tr::Rendering {
             .view = glm::inverse(camera.transform.getMatrix()),
             .proj = cameraProjection,
             .cameraPos = camera.transform.position,
-            .lightIntensity = light.intensity,
+            .lightIntensity = light.enabled ? light.intensity : 0.0f,
             .lightDirection = light.direction,
             .lightColor = light.color,
             .lightViewProj = lightViewProj,
@@ -110,7 +110,12 @@ namespace tr::Rendering {
             }
         );
 
-        _renderingInterface.renderShadowPass(_opaqueDrawQueue);
+        const bool renderShadows = light.enabled && light.shadowsEnabled;
+        _renderingInterface.renderShadowPass(
+            renderShadows
+                ? _opaqueDrawQueue
+                : std::span<const DrawCommand>()
+        );
 
         _colorDrawQueue.clear();
         _colorDrawQueue.reserve(_opaqueDrawQueue.size() + _transparentDrawQueue.size());

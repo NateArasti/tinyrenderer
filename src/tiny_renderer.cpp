@@ -145,8 +145,12 @@ namespace tr {
 
             lightWindow = UI::UIWindow{
                 .name = "Light",
-                .height = 125.0f,
+                .height = 175.0f,
                 .drawCallback = [this]() {
+                    ImGui::Checkbox("Enabled", &directionalLight.enabled);
+                    ImGui::Checkbox("Shadows", &directionalLight.shadowsEnabled);
+                    ImGui::Separator();
+                    ImGui::BeginDisabled(!directionalLight.enabled);
                     ImGui::DragFloat(
                         "Intensity",
                         &directionalLight.intensity,
@@ -159,6 +163,7 @@ namespace tr {
                     if (ImGui::SliderFloat("Pitch", &lightPitch, -90.0f, 0.0f, "%.1f°")) {
                         updateLightDirection();
                     }
+                    ImGui::EndDisabled();
                 }
             };
 
