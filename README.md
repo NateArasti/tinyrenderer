@@ -73,7 +73,8 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] WebGPU
   - [ ] DirectX
 - **Rendering Techniques**
-  - [ ] Skybox
+  - [x] Skybox Import
+  - [ ] Procedural default skybox
   - [ ] Instanced Rendering
   - [ ] Image-based lighting
   - [ ] Cel-Shading
