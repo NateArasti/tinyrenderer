@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <fmt/base.h>
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <ufbx.h>
 
@@ -512,8 +513,7 @@ namespace tr::Loading {
             if (!sourceScene) {
                 char description[1024]{};
                 ufbx_format_error(description, sizeof(description), &error);
-                fmt::println("Couldn't load FBX file: {}", description);
-                return;
+                throw ImportError(fmt::format("Couldn't load FBX file: {}", description));
             }
 
             const auto materials = createMaterials(

@@ -71,6 +71,7 @@ namespace tr {
         UI::UIWindow cameraWindow;
         std::string gpuName;
         std::string modelName = "Default Scene";
+        std::string importError;
         float lightYaw = 0.0f;
         float lightPitch = 0.0f;
         float smoothedDeltaTime = 1.0f / 60.0f;
@@ -82,6 +83,7 @@ namespace tr {
         float orbitZoomSensitivity = 0.75f;
         bool fpsInitialized = false;
         bool showUI = false;
+        bool importErrorPopupPending = false;
 
         Impl() {
             fmt::println(
@@ -136,6 +138,8 @@ namespace tr {
                     ImGui::Text("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
                     ImGui::Text("Vertices: %zu", currentScene->verticesCount);
                     ImGui::Text("Polygons: %zu", currentScene->polygonCount);
+
+                    drawImportErrorPopup();
                 }
             };
 
@@ -284,11 +288,53 @@ namespace tr {
             }
 
             fmt::println("Loading file {}", path->string());
-            loadScene([&path](Loading::LoadContext ctx) {
-                return Loading::Loader::loadModel(ctx, *path);
-            });
+            renderer->clearState();
+            Loading::LoadContext context{
+                .resources = renderer->getResources()
+            };
+            try {
+                currentScene = Loading::Loader::loadModel(context, *path);
+            }
+            catch (const Loading::ImportError& error) {
+                importError = error.what();
+                fmt::println("Model import failed: {}", importError);
+                currentScene = Loading::Loader::loadDefaultScene(context);
+                modelName = "Default Scene";
+                importErrorPopupPending = true;
+                showUI = true;
+                syncSceneUI();
+                return;
+            }
+
             modelName = path->filename().string();
             syncSceneUI();
+        }
+
+        void drawImportErrorPopup() {
+            if (importErrorPopupPending) {
+                ImGui::OpenPopup("Import Error");
+                importErrorPopupPending = false;
+            }
+
+            const ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(
+                viewport->GetCenter(),
+                ImGuiCond_Appearing,
+                ImVec2(0.5f, 0.5f)
+            );
+            ImGui::SetNextWindowSize(ImVec2(460.0f, 0.0f), ImGuiCond_Appearing);
+            if (ImGui::BeginPopupModal(
+                "Import Error",
+                nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize
+            )) {
+                ImGui::TextWrapped("%s", importError.c_str());
+                ImGui::Spacing();
+                if (ImGui::Button("OK", ImVec2(100.0f, 0.0f))) {
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
         }
 
         void syncSceneUI() {

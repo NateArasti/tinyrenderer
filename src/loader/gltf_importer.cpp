@@ -16,6 +16,7 @@
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 #include <fmt/base.h>
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 
 #include "stb_image.h"
@@ -539,11 +540,10 @@ namespace tr::Loading {
         ) {
             auto data = fastgltf::GltfDataBuffer::FromPath(path);
             if (data.error() != fastgltf::Error::None) {
-                fmt::println(
+                throw ImportError(fmt::format(
                     "Couldn't open glTF file: {}",
                     fastgltf::getErrorMessage(data.error())
-                );
-                return;
+                ));
             }
             constexpr auto options =
                 fastgltf::Options::LoadExternalBuffers |
@@ -555,11 +555,10 @@ namespace tr::Loading {
             );
             auto loaded = parser.loadGltf(data.get(), path.parent_path(), options);
             if (loaded.error() != fastgltf::Error::None) {
-                fmt::println(
+                throw ImportError(fmt::format(
                     "Couldn't load glTF file: {}",
                     fastgltf::getErrorMessage(loaded.error())
-                );
-                return;
+                ));
             }
 
             auto asset = std::move(loaded.get());

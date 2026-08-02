@@ -144,6 +144,12 @@ namespace tr::Loading {
             importer->load(*scene, ctx, path);
         }
 
+        if (scene->getObjects().empty()) {
+            throw ImportError(
+                "The file contains no renderable meshes or its format is unsupported."
+            );
+        }
+
         return scene;
     }
 }

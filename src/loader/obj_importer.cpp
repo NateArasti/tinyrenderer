@@ -15,6 +15,7 @@
 #include <vector>
 
 #include <fmt/base.h>
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include "rapidobj/rapidobj.hpp"
 #define STB_IMAGE_IMPLEMENTATION
@@ -424,14 +425,18 @@ namespace tr::Loading {
             rapidobj::Result result = rapidobj::ParseFile(path);
 
             if (result.error) {
-                fmt::println("Couldn't load OBJ file: {}", result.error.code.message() );
-                return;
+                throw ImportError(fmt::format(
+                    "Couldn't load OBJ file: {}",
+                    result.error.code.message()
+                ));
             }
 
             bool success = rapidobj::Triangulate(result);
             if (!success) {
-                fmt::println("Couldn't triangulate OBJ file: {}", result.error.code.message() );
-                return;
+                throw ImportError(fmt::format(
+                    "Couldn't triangulate OBJ file: {}",
+                    result.error.code.message()
+                ));
             }
 
             const auto materials = createMaterials(scene, ctx, path.parent_path(), result.materials);
