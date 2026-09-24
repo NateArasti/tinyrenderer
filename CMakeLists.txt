@@ -19,6 +19,9 @@ if(WIN32)
         WIN32_EXECUTABLE "$<$<CONFIG:Release>:TRUE>"
     )
 endif()
+if(MSVC)
+    target_link_options(tinyrenderer PRIVATE "$<$<CONFIG:Release>:/ENTRY:mainCRTStartup>")
+endif()
 
 add_subdirectory(third-party/ufbx)
 

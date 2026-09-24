@@ -9,6 +9,7 @@
     {
       "name": "base",
       "hidden": true,
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
@@ -19,18 +20,17 @@
       "name": "windows-debug",
       "inherits": "base",
       "binaryDir": "${sourceDir}/build/win-debug",
-      "generator": "MinGW Makefiles",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       },
       "cacheVariables": {
-        "CMAKE_MAKE_PROGRAM": "mingw32-make",
-        "CMAKE_C_COMPILER": "gcc",
-        "CMAKE_CXX_COMPILER": "g++",
-        "VCPKG_TARGET_TRIPLET": "x64-mingw-static",
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
       }
     },
     {
@@ -40,32 +40,10 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
-    },
-    {
-      "name": "linux-debug",
-      "inherits": "base",
-      "generator": "Ninja",
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "linux-release",
-      "inherits": "linux-debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
     }
   ],
   "buildPresets": [
     { "name": "win-debug", "configurePreset": "windows-debug" },
-    { "name": "win-release", "configurePreset": "windows-release" },
-    { "name": "lin-debug", "configurePreset": "linux-debug" },
-    { "name": "lin-release", "configurePreset": "linux-release" }
+    { "name": "win-release", "configurePreset": "windows-release" }
   ]
 }

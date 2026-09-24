@@ -29,7 +29,7 @@ namespace tr::Rendering::Vulkan {
         vk::raii::DescriptorSet _descriptorSet = nullptr;
         vk::raii::Sampler _sourceSampler = nullptr;
 
-        std::unordered_map<const vk::Format, ConversionPipeline> _pipelines;
+        std::unordered_map<vk::Format, ConversionPipeline> _pipelines;
 
         const ConversionPipeline& pipeline(vk::Format destinationFormat);
         vk::raii::CommandBuffer beginCommands();

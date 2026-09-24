@@ -31,7 +31,7 @@ namespace tr::Rendering::Vulkan {
         info.Device = static_cast<VkDevice>(*_vulkanContext.device);
         info.QueueFamily = _vulkanContext.queueIndex;
         info.Queue = static_cast<VkQueue>(*_vulkanContext.queue);
-        info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
+        info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
         info.MinImageCount = 2;
         info.ImageCount = static_cast<uint32_t>(swapchain.imageCount());
         info.UseDynamicRendering = true;

@@ -14,18 +14,22 @@ A small renderer for learning graphics APIs and rendering techniques.
 ## Dependencies
 
 - CMake 4.3.1+
-- MinGW-w64
-- Vulkan 1.3 SDK
+- MSVC (C++20)
+- Vulkan SDK 1.3+
+- Slang compiler (`slangc`) in `PATH` (most of the time provided with Vulkan SDK)
 - vcpkg with `VCPKG_ROOT` set
-- Slang compiler (`slangc`) in `PATH`
+- ufbx (included in the repository)
+
+Installed through [vcpkg.json](vcpkg.json) manifest:
+
 - GLFW
 - GLM
-- ImGui
+- ImGui (Vulkan backend)
 - fmt
 - stb
 - rapidobj
 - fastgltf
-- ufbx (included in the repository)
+- tinyexr
 
 ## Build
 
