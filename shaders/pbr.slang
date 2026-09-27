@@ -137,7 +137,7 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     if (params.hasRoughnessMap > 0.5) {
         roughness *= roughnessMap.Sample(vertIn.uv).r;
     }
-    roughness = clamp(roughness, 0.04, 1.0);
+    roughness = saturate(roughness);
 
     float3 F0 = params.specularColor.rgb;
     if (params.hasSpecularMap > 0.5) {
@@ -148,13 +148,12 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     float3 Lo = float3(0);
 
     float3 N = normalize(vertIn.normal);
-    N = isFrontFace ? N : -N;
     if (params.hasNormalMap > 0.5) {
         N = applyNormalMap(N, vertIn.worldPos, vertIn.uv);
     }
     float3 V = normalize(sceneData.cameraPos - vertIn.worldPos);
     float3 L = normalize(-sceneData.lightDirection);
-    
+
     float NdotL = max(dot(N, L), 0.0);
     float NdotV = max(dot(N, V), 0.0);
 
@@ -193,8 +192,6 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
 
     float3 color = ambient + Lo + emission;
 
-    // HDR Tonemapping (Reinhard) and Gamma Correction
-    color = color / (color + float3(1.0));
     color = pow(color, float3(1.0 / 2.2));
 
     return float4(color, baseColor.a);
