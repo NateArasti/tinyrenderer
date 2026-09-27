@@ -28,6 +28,7 @@
 #include "mesh.h"
 #include "rhi.h"
 #include "transform.h"
+#include "coordinate_conversion.h"
 
 namespace tr::Loading {
     namespace {
@@ -527,6 +528,7 @@ namespace tr::Loading {
             if (!hasGeometry) {
                 return {};
             }
+            convertToLeftHanded(mesh);
             const auto bounds = scene.registerMesh(mesh);
             return {
                 context.resources.createMesh(mesh),
@@ -597,7 +599,7 @@ namespace tr::Loading {
                             : std::string(node.name);
                         object->mesh = importedMesh.mesh;
                         object->materials = importedMesh.materials;
-                        object->transform = Transform::fromTransform(toGlm(transform));
+                        object->transform = Transform::fromTransform(convertToLeftHanded(toGlm(transform)));
                         scene.includeBounds(importedMesh.bounds, object->transform.getMatrix());
                         scene.getObjects().push_back(std::move(object));
                     }

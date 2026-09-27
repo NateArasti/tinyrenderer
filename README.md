@@ -57,18 +57,18 @@ Executables are written to `build/win-debug` and `build/win-release`.
 - Hold `Shift` to move faster
 - `F3` to toggle the UI
 
+## Conventions
+
+- Counter-Clockwise winding
+- Left-handed coordinate system
+
+## Used Resources
+
+- [Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/) – an ok basics with weird learning curve at start
+- [Learn OpenGL](https://learnopengl.com/) – an excellent and clear overview of various techniques that can be applied not only in OpenGL
+
 ## TODO
 
-- **Utility**
-  - [ ] Screenshot Export
-  - [ ] Drag-and-drop model loading
-  - [ ] File Associations
-  - [ ] Recent files
-  - [ ] GPU and CPU profiling
-  - [ ] FPS and frame-time graph
-  - [ ] VRAM and resource usage display
-  - [ ] Debug views of internal buffers and images
-  - [ ] Scene hierarchy
 - **Porting**
   - [ ] Linux
   - [ ] Web
@@ -107,3 +107,13 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] Motion blur
   - [ ] Fog
   - [ ] Custom runtime fullscreen effects
+- **Utility**
+  - [ ] Screenshot Export
+  - [ ] Drag-and-drop model loading
+  - [ ] File Associations
+  - [ ] Recent files
+  - [ ] GPU and CPU profiling
+  - [ ] FPS and frame-time graph
+  - [ ] VRAM and resource usage display
+  - [ ] Debug views of internal buffers and images
+  - [ ] Scene hierarchy

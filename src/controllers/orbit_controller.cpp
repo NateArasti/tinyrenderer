@@ -21,7 +21,7 @@ namespace tr::Controllers {
             _distance * std::sin(pitchRad),
             _distance * std::cos(pitchRad) * std::cos(yawRad)
         );
-        camera.transform.eulerAngles = glm::vec3(-_pitch, _yaw, 0.0f);
+        camera.transform.eulerAngles = glm::vec3(_pitch, _yaw + 180.0f, 0.0f);
     }
 
     void OrbitController::update(tr::Data::Camera& camera, tr::App::Input& input, float) {
@@ -40,7 +40,7 @@ namespace tr::Controllers {
             input.isMouseButtonDown(tr::App::MouseButton::Middle) ||
             input.isMouseButtonDown(tr::App::MouseButton::Right)
         ) {
-            _yaw -= delta.x * sensitivity;
+            _yaw += delta.x * sensitivity;
             _pitch = std::clamp(_pitch + delta.y * sensitivity, -89.0f, 89.0f);
             dirty = true;
         }

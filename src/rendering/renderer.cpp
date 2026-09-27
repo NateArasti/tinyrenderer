@@ -26,7 +26,7 @@ namespace tr::Rendering {
         const float aspect = static_cast<float>(_window.width()) / static_cast<float>(_window.height());
         glm::mat4 cameraProjection;
         if (camera.projection == tr::Data::CameraProjection::Perspective) {
-            cameraProjection = glm::perspectiveRH_ZO(
+            cameraProjection = glm::perspectiveLH_ZO(
                 glm::radians(camera.fov),
                 aspect,
                 camera.near,
@@ -36,7 +36,7 @@ namespace tr::Rendering {
         else {
             const float halfHeight = camera.orthographicSize * 0.5f;
             const float halfWidth = halfHeight * aspect;
-            cameraProjection = glm::orthoRH_ZO(
+            cameraProjection = glm::orthoLH_ZO(
                 -halfWidth,
                 halfWidth,
                 -halfHeight,
@@ -56,8 +56,8 @@ namespace tr::Rendering {
         float padding = sceneRadius;
         glm::vec3 eye = scaledSceneCenter - dir * (sceneRadius + padding);
         glm::vec3 up = glm::abs(dir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-        glm::mat4 lightView = glm::lookAt(eye, scaledSceneCenter, up);
-        glm::mat4 lightProj = glm::orthoRH_ZO(
+        glm::mat4 lightView = glm::lookAtLH(eye, scaledSceneCenter, up);
+        glm::mat4 lightProj = glm::orthoLH_ZO(
             -sceneRadius, sceneRadius,
             -sceneRadius, sceneRadius,
             0.0f, 2.0f * sceneRadius + padding

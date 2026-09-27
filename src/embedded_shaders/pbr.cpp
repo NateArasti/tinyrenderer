@@ -6,7 +6,7 @@ namespace tr::Data::EmbeddedShaders {
     Pbr::Pbr() : Shader("pbr", getCode()) {
         vertName = "vertMain";
         fragName = "fragMain";
-        cullMode = CullMode::None;
+        cullMode = CullMode::Back;
         params = {
             { "diffuseColor", glm::vec4(1) },
             { "ambientColor", glm::vec4(0.03f, 0.03f, 0.03f, 1.0f) },

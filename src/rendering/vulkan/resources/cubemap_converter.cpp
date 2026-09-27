@@ -21,8 +21,8 @@ namespace tr::Rendering::Vulkan {
 
         const std::array<float, 6> vertices{
             -1.0f, -1.0f,
-             3.0f, -1.0f,
-            -1.0f,  3.0f
+            -1.0f,  3.0f,
+             3.0f, -1.0f
         };
         _vertexBuffer = factory.uploadBuffer(
             std::as_bytes(std::span(vertices)),
@@ -139,7 +139,7 @@ namespace tr::Rendering::Vulkan {
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
             .cullMode = vk::CullModeFlagBits::eNone,
-            .frontFace = vk::FrontFace::eClockwise,
+            .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = vk::False,
             .lineWidth = 1.0f
         };

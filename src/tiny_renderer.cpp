@@ -277,8 +277,8 @@ namespace tr {
         }
 
         void setupCamera() {
-            camera.transform.position = glm::vec3(0.0f, 20.0f, 24.0f);
-            camera.transform.eulerAngles = glm::vec3(-40.0f, 0.0f, 0.0f);
+            camera.transform.position = glm::vec3(0.0f, 20.0f, -24.0f);
+            camera.transform.eulerAngles = glm::vec3(40.0f, 0.0f, 0.0f);
             camera.fov = 60;
             camera.near = 0.1f;
             camera.far = 150;
@@ -287,7 +287,7 @@ namespace tr {
 
         void setupLight() {
             environment.directionalLight = {
-                .direction = glm::vec3(0.5f, -1.0f, 0.5f),
+                .direction = glm::vec3(0.5f, -1.0f, -0.5f),
                 .intensity = 5.0f,
                 .color = glm::vec4(1.0f)
             };

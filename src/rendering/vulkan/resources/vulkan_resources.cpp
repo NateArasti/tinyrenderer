@@ -116,7 +116,7 @@ namespace tr::Rendering::Vulkan {
             .depthClampEnable = vk::False,
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
-            .frontFace = vk::FrontFace::eClockwise,
+            .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = vk::False,
             .lineWidth = 1.0f
         };
@@ -170,7 +170,9 @@ namespace tr::Rendering::Vulkan {
             .attachmentCount = 1,
             .pAttachments = &colorBlendAttachment
         };
-        const std::array dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+        const std::array dynamicStates = {
+            vk::DynamicState::eViewport, vk::DynamicState::eScissor, vk::DynamicState::eFrontFace
+        };
         vk::PipelineDynamicStateCreateInfo dynamicState{
             .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
             .pDynamicStates = dynamicStates.data()

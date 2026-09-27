@@ -28,6 +28,7 @@
 #include "mesh.h"
 #include "rhi.h"
 #include "transform.h"
+#include "coordinate_conversion.h"
 
 namespace tr::Loading {
     namespace {
@@ -476,6 +477,7 @@ namespace tr::Loading {
             }
             flatVertices.resize(numVertices);
             mesh.vertices = std::move(flatVertices);
+            convertToLeftHanded(mesh);
             const auto bounds = scene.registerMesh(mesh);
 
             return {
@@ -495,6 +497,7 @@ namespace tr::Loading {
             options.ignore_animation = true;
             options.ignore_missing_external_files = true;
             options.use_blender_pbr_material = true;
+            // Normalize source axes before the shared RH-to-LH conversion.
             options.target_axes = {
                 UFBX_COORDINATE_AXIS_POSITIVE_X,
                 UFBX_COORDINATE_AXIS_POSITIVE_Y,
@@ -545,7 +548,7 @@ namespace tr::Loading {
                     object->name = toString(node->mesh->name);
                 }
                 object->mesh = foundMesh->second.mesh;
-                object->transform = Transform::fromTransform(toGlm(node->geometry_to_world));
+                object->transform = Transform::fromTransform(convertToLeftHanded(toGlm(node->geometry_to_world)));
                 scene.includeBounds(foundMesh->second.bounds, object->transform.getMatrix());
                 for (uint32_t materialSlot : foundMesh->second.materialSlots) {
                     if (materialSlot < node->materials.count) {

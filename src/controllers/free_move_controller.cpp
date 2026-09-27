@@ -31,9 +31,9 @@ namespace tr::Controllers {
         if (_captured) {
             glm::vec2 delta = mousePos - _prevMousePos;
             camera.transform.eulerAngles.x = std::clamp(
-                camera.transform.eulerAngles.x - delta.y * sensitivity, -89.0f, 89.0f
+                camera.transform.eulerAngles.x + delta.y * sensitivity, -89.0f, 89.0f
             );
-            camera.transform.eulerAngles.y -= delta.x * sensitivity;
+            camera.transform.eulerAngles.y += delta.x * sensitivity;
         }
 
         _prevMousePos = mousePos;
@@ -42,11 +42,11 @@ namespace tr::Controllers {
         float pitchRad = glm::radians(-camera.transform.eulerAngles.x);
 
         glm::vec3 forward = glm::normalize(glm::vec3(
-            -std::cos(pitchRad) * std::sin(yawRad),
-            -std::sin(pitchRad),
-            -std::cos(pitchRad) * std::cos(yawRad)
+            std::cos(pitchRad) * std::sin(yawRad),
+            std::sin(pitchRad),
+            std::cos(pitchRad) * std::cos(yawRad)
         ));
-        glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0, 1, 0)));
+        glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0, 1, 0), forward));
 
         glm::vec3 move{0.0f};
 

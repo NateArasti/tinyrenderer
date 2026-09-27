@@ -29,7 +29,7 @@ namespace tr::Data {
 
                 const glm::vec3 edgeA = vertices[i1].position - vertices[i0].position;
                 const glm::vec3 edgeB = vertices[i2].position - vertices[i0].position;
-                const glm::vec3 normal = glm::normalize(glm::cross(edgeA, edgeB));
+                const glm::vec3 normal = glm::normalize(glm::cross(edgeB, edgeA));
 
                 vertices[i0].normal = normal;
                 vertices[i1].normal = normal;

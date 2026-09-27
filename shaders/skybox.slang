@@ -33,7 +33,7 @@ float4 fragMain(VSOutput input) : SV_TARGET {
     float3 viewDirection = normalize(float3(
         input.coordinate.x / sceneData.proj[0][0],
         input.coordinate.y / sceneData.proj[1][1],
-        -1.0
+        1.0
     ));
     float3 worldDirection = normalize(mul(transpose((float3x3)sceneData.view), viewDirection));
 

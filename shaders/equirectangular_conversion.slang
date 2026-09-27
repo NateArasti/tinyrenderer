@@ -37,7 +37,7 @@ float3 faceDirection(uint face, float2 coordinate) {
 float2 directionToEquirectangular(float3 direction) {
     static const float PI = 3.14159265359;
     return float2(
-        atan2(direction.z, direction.x) / (2.0 * PI) + 0.5,
+        atan2(-direction.z, direction.x) / (2.0 * PI) + 0.5,
         acos(clamp(direction.y, -1.0, 1.0)) / PI
     );
 }

@@ -64,7 +64,7 @@ namespace tr::Loading {
                     const glm::vec3 normal(
                         std::sin(theta) * std::cos(phi),
                         std::cos(theta),
-                        std::sin(theta) * std::sin(phi)
+                        -std::sin(theta) * std::sin(phi)
                     );
                     mesh.vertices.push_back({ normal, normal, { u, v } });
                 }
@@ -75,10 +75,10 @@ namespace tr::Loading {
                     const uint32_t a = ring * (segments + 1) + segment;
                     const uint32_t b = a + segments + 1;
                     if (ring != 0) {
-                        mesh.indices.insert(mesh.indices.end(), { a, b, a + 1, });
+                        mesh.indices.insert(mesh.indices.end(), { a, a + 1, b });
                     }
                     if (ring != rings - 1) {
-                        mesh.indices.insert(mesh.indices.end(), { a + 1, b, b + 1 });
+                        mesh.indices.insert(mesh.indices.end(), { a + 1, b + 1, b });
                     }
                 }
             }

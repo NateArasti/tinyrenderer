@@ -26,6 +26,7 @@
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"
+#include "coordinate_conversion.h"
 #include "rhi.h"
 
 namespace tr::Loading {
@@ -409,6 +410,7 @@ namespace tr::Loading {
                 }
             }
 
+            convertToLeftHanded(mesh);
             if (!hasNormals) {
                 mesh.recalculateNormals();
             }

@@ -85,7 +85,7 @@ namespace tr::Rendering::Vulkan {
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
             .cullMode = vk::CullModeFlagBits::eNone,
-            .frontFace = vk::FrontFace::eClockwise,
+            .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = vk::True,
             .depthBiasConstantFactor = 1.25f,
             .depthBiasSlopeFactor = 1.75f,
@@ -105,7 +105,8 @@ namespace tr::Rendering::Vulkan {
 
 		std::vector<vk::DynamicState> dynamicStates = {
             vk::DynamicState::eViewport, 
-            vk::DynamicState::eScissor
+            vk::DynamicState::eScissor,
+            vk::DynamicState::eFrontFace
         };
         vk::PipelineDynamicStateCreateInfo dynamicState{
              .dynamicStateCount = static_cast<uint32_t>(dynamicStates.size()),
@@ -208,6 +209,8 @@ namespace tr::Rendering::Vulkan {
 
     void ShadowPass::draw(vk::raii::CommandBuffer& commandBuffer, const DrawCommand& command, const SceneData& sceneData) {
         const auto& mesh = _resources.mesh(command.mesh);
+        commandBuffer.setFrontFace(glm::determinant(glm::mat3(command.modelMatrix)) < 0.0f
+            ? vk::FrontFace::eClockwise : vk::FrontFace::eCounterClockwise);
         commandBuffer.bindVertexBuffers(0, *mesh.vertexBuffer, { 0 });
         commandBuffer.bindIndexBuffer(*mesh.indexBuffer, 0, vk::IndexType::eUint32);
         if (command.subMeshIndex >= mesh.subMeshesLayouts.size()) {

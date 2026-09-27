@@ -100,6 +100,9 @@ namespace tr::Rendering::Vulkan {
         if (material.shader == nullptr) throw std::runtime_error("Can't use material with no shader");
         const auto& shader = *material.shader;
         commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *shader.graphicsPipeline);
+        // Reflections reverse the projected winding of a CCW mesh.
+        commandBuffer.setFrontFace(glm::determinant(glm::mat3(command.modelMatrix)) < 0.0f
+            ? vk::FrontFace::eClockwise : vk::FrontFace::eCounterClockwise);
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics,
             shader.pipelineLayout,
