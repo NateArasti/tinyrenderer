@@ -2,36 +2,41 @@ module Light;
 
 public static const float PI = 3.14159265359;
 
-// Normal Distribution Function (D) - GGX/Trowbridge-Reitz Distribution
-// Describes the statistical distribution of microfacet orientations
-public float DistributionGGX(float NdotH, float roughness) {
-    float a = roughness * roughness; // Remapping for more perceptual linearity
+public float distributionGGX(float3 N, float3 H, float roughness)
+{
+    float a = roughness * roughness;
     float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
     float NdotH2 = NdotH * NdotH;
 
-    float nom = a2; // Numerator: concentration factor
+    float num = a2;
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom; // Normalization factor
+    denom = PI * denom * denom;
 
-    return nom / denom; // Normalized distribution
+    return num / denom;
 }
 
-// Geometry Function (G) - Smith's method with Schlick-GGX approximation
-// Models self-shadowing and masking between microfacets
-public float GeometrySmith(float NdotV, float NdotL, float roughness) {
-    float r = roughness + 1.0;
-    float k = (r * r) / 8.0; // Direct lighting remapping
+public float geometrySchlickGGX(float NdotV, float roughness)
+{
+    float r = (roughness + 1.0);
+    float k = (r * r) / 8.0;
 
-    // Geometry obstruction from view direction (masking)
-    float ggx1 = NdotV / (NdotV * (1.0 - k) + k);
-    // Geometry obstruction from light direction (shadowing)
-    float ggx2 = NdotL / (NdotL * (1.0 - k) + k);
+    float num = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
 
-    return ggx1 * ggx2; // Combined masking-shadowing
+    return num / denom;
 }
 
-// Fresnel Reflectance (F) - Schlick's approximation
-// Models how reflectance changes with viewing angle
-public float3 FresnelSchlick(float cosTheta, float3 F0) {
-    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+public float geometrySmith(float3 N, float3 V, float3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2 = geometrySchlickGGX(NdotV, roughness);
+    float ggx1 = geometrySchlickGGX(NdotL, roughness);
+
+    return ggx1 * ggx2;
+}
+
+public float3 fresnelSchlick(float cosTheta, float3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }

@@ -118,7 +118,7 @@ VSOutput vertMain(VSInput input) {
 }
 
 [shader("fragment")]
-float4 fragMain(VSOutput vertIn) : SV_TARGET {
+float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     float4 baseColor = vertIn.color * params.diffuseColor;
     if (params.hasDiffuseMap > 0.5) {
         baseColor *= diffuseMap.Sample(vertIn.uv);
@@ -126,21 +126,6 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     if (params.hasOpacityMap > 0.5) {
         baseColor.a *= opacityMap.Sample(vertIn.uv).r;
     }
-
-    float3 N = normalize(vertIn.normal);
-    if (params.hasNormalMap > 0.5) {
-        N = applyNormalMap(N, vertIn.worldPos, vertIn.uv);
-    }
-    float3 V = normalize(sceneData.cameraPos - vertIn.worldPos);
-    float3 R = reflect(-V, N);
-    
-    float3 L = normalize(-sceneData.lightDirection);
-    float3 H = normalize(V + L);
-
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
-    float cosTheta = max(dot(H, V), 0.0);
 
     float metallic = params.metallicFactor;
     if (params.hasMetallicMap > 0.5) {
@@ -160,30 +145,52 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     }
     F0 = lerp(F0, baseColor.rgb, metallic);
 
-    float D = DistributionGGX(NdotH, roughness);
-    float G = GeometrySmith(NdotV, NdotL, roughness);
-    float3 F = FresnelSchlick(cosTheta, F0);
+    float3 Lo = float3(0);
 
-    float3 numerator = D * G * F;
-    float denominator = 4.0 * NdotV * NdotL + 0.0001; 
-    float3 specular = numerator / denominator;
+    float3 N = normalize(vertIn.normal);
+    N = isFrontFace ? N : -N;
+    if (params.hasNormalMap > 0.5) {
+        N = applyNormalMap(N, vertIn.worldPos, vertIn.uv);
+    }
+    float3 V = normalize(sceneData.cameraPos - vertIn.worldPos);
+    float3 L = normalize(-sceneData.lightDirection);
+    
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.0);
 
-    float3 kS = F;
-    float3 kD = float3(1.0) - kS;
-    kD *= 1.0 - metallic;
+    if (NdotL > 0.0 && NdotV > 0.0) {
+        float3 H = normalize(V + L);
+        float NdotH = max(dot(N, H), 0.0);
+        float cosTheta = max(dot(H, V), 0.0);
 
-    float shadow = NdotL > 0.0
-        ? calculateSoftShadow(mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1)), NdotL)
-        : 1.0;
+        float NDF = distributionGGX(N, H, roughness);
+        float G = geometrySmith(N, V, L, roughness);
+        float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
-    float3 radiance = sceneData.lightColor.rgb * sceneData.lightIntensity;
-    float3 Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL * shadow;
+        float3 kS = F;
+        float3 kD = float3(1.0) - kS;
+        kD *= 1.0 - metallic;
 
-    float3 ambient = kD * params.ambientColor.rgb * baseColor.rgb;
+        float3 numerator = NDF * G * F;
+        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+        float3 specular = numerator / denominator;
+
+        float shadow = isFrontFace && NdotL > 0.0
+                           ? calculateSoftShadow(mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1)), NdotL)
+                           : 1.0;
+
+        float3 radiance = sceneData.lightColor.rgb * sceneData.lightIntensity;
+        Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL * shadow;
+    }
+
+    float3 ambientKD = 1.0 - metallic;
+    float3 ambient = ambientKD * params.ambientColor.rgb * baseColor.rgb;
+
     float3 emission = params.emissionColor.rgb;
     if (params.hasEmissionMap > 0.5) {
         emission *= emissionMap.Sample(vertIn.uv).rgb;
     }
+
     float3 color = ambient + Lo + emission;
 
     // HDR Tonemapping (Reinhard) and Gamma Correction
