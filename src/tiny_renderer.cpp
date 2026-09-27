@@ -276,8 +276,8 @@ namespace tr {
         }
 
         void setupCamera() {
-            camera.transform.position = glm::vec3(-4, 4, 4);
-            camera.transform.eulerAngles = glm::vec3(-45.0f, -45.0f, 0.0f);
+            camera.transform.position = glm::vec3(0.0f, 20.0f, 24.0f);
+            camera.transform.eulerAngles = glm::vec3(-40.0f, 0.0f, 0.0f);
             camera.fov = 60;
             camera.near = 0.1f;
             camera.far = 150;

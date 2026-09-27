@@ -1,7 +1,9 @@
 #include "loader.h"
 
-#include <limits>
+#include <cmath>
 #include <memory>
+#include <numbers>
+#include <string>
 
 #include <glm/glm.hpp>
 
@@ -26,65 +28,61 @@ namespace tr::Loading {
             MeshBounds bounds;
         };
 
-        Handle<Material> createCubeMaterial(Scene& scene, LoadContext ctx) {
+        Handle<Material> createSphereMaterial(Scene& scene, LoadContext ctx, float metallic, float roughness) {
             auto material = std::make_unique<Material>();
-            material->name = "base";
-            material->set("diffuseColor", glm::vec4(1, 1, 1, 1));
+            material->name = "sphere_m" + std::to_string(metallic) + "_r" + std::to_string(roughness);
+            material->set("diffuseColor", glm::vec4(0.5f, 0.0f, 0.0f, 1.0f));
+            material->set("metallicFactor", metallic).set("roughnessFactor", roughness);
             auto handle = scene.materials.add(std::move(material));
             ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
         }
 
-        Handle<Material> createPlaneMaterial(tr::Data::Scene& scene, LoadContext ctx) {
+        Handle<Material> createPlaneMaterial(Scene& scene, LoadContext ctx) {
             auto material = std::make_unique<Material>();
-            material->name = "base";
-            material->set("metallicFactor", 0.5f).set("roughnessFactor", 0.5f);
+            material->name = "floor";
+            material->set("diffuseColor", glm::vec4(0.25f, 0.25f, 0.25f, 1.0f));
+            material->set("metallicFactor", 0.0f).set("roughnessFactor", 1.0f);
             auto handle = scene.materials.add(std::move(material));
             ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
         }
 
-        UploadedMesh createCubeMesh(Scene& scene, LoadContext ctx) {
+        UploadedMesh createSphereMesh(Scene& scene, LoadContext ctx) {
+            constexpr uint32_t segments = 64;
+            constexpr uint32_t rings = 32;
             Mesh mesh;
-            mesh.vertices = {
-                {{-0.5f, -0.5f, -0.5f}, {0, -1, 0}, {0, 0}},
-                {{-0.5f, -0.5f,  0.5f}, {0, -1, 0}, {0, 1}},
-                {{ 0.5f, -0.5f, -0.5f}, {0, -1, 0}, {1, 0}},
-                {{ 0.5f, -0.5f,  0.5f}, {0, -1, 0}, {1, 1}},
+            mesh.vertices.reserve((rings + 1) * (segments + 1));
+            mesh.indices.reserve(6 * segments * (rings - 1));
 
-                {{-0.5f,  0.5f, -0.5f}, {0, 1, 0}, {0, 0}},
-                {{ 0.5f,  0.5f, -0.5f}, {0, 1, 0}, {1, 0}},
-                {{-0.5f,  0.5f,  0.5f}, {0, 1, 0}, {0, 1}},
-                {{ 0.5f,  0.5f,  0.5f}, {0, 1, 0}, {1, 1}},
-
-                {{-0.5f,  0.5f,  0.5f}, {0, 0, 1}, {0, 0}},
-                {{ 0.5f,  0.5f,  0.5f}, {0, 0, 1}, {1, 0}},
-                {{-0.5f, -0.5f,  0.5f}, {0, 0, 1}, {0, 1}},
-                {{ 0.5f, -0.5f,  0.5f}, {0, 0, 1}, {1, 1}},
-
-                {{ 0.5f,  0.5f, -0.5f}, {0, 0, -1}, {0, 0}},
-                {{-0.5f,  0.5f, -0.5f}, {0, 0, -1}, {1, 0}},
-                {{ 0.5f, -0.5f, -0.5f}, {0, 0, -1}, {0, 1}},
-                {{-0.5f, -0.5f, -0.5f}, {0, 0, -1}, {1, 1}},
-
-                {{-0.5f,  0.5f,  0.5f}, {-1, 0, 0}, {0, 0}},
-                {{-0.5f, -0.5f,  0.5f}, {-1, 0, 0}, {0, 1}},
-                {{-0.5f,  0.5f, -0.5f}, {-1, 0, 0}, {1, 0}},
-                {{-0.5f, -0.5f, -0.5f}, {-1, 0, 0}, {1, 1}},
-
-                {{ 0.5f,  0.5f, -0.5f}, {1, 0, 0}, {0, 0}},
-                {{ 0.5f, -0.5f, -0.5f}, {1, 0, 0}, {0, 1}},
-                {{ 0.5f,  0.5f,  0.5f}, {1, 0, 0}, {1, 0}},
-                {{ 0.5f, -0.5f,  0.5f}, {1, 0, 0}, {1, 1}}
-            };
-
-            for (uint32_t i = 0; i < 24; i += 4) {
-                mesh.indices.insert(mesh.indices.end(), {
-                    i, i + 1, i + 2,
-                    i + 1, i + 3, i + 2
-                });
+            for (uint32_t ring = 0; ring <= rings; ++ring) {
+                const float v = static_cast<float>(ring) / rings;
+                const float theta = v * std::numbers::pi_v<float>;
+                for (uint32_t segment = 0; segment <= segments; ++segment) {
+                    const float u = static_cast<float>(segment) / segments;
+                    const float phi = u * 2.0f * std::numbers::pi_v<float>;
+                    const glm::vec3 normal(
+                        std::sin(theta) * std::cos(phi),
+                        std::cos(theta),
+                        std::sin(theta) * std::sin(phi)
+                    );
+                    mesh.vertices.push_back({ normal, normal, { u, v } });
+                }
             }
-            mesh.subMeshData.push_back(36);
+
+            for (uint32_t ring = 0; ring < rings; ++ring) {
+                for (uint32_t segment = 0; segment < segments; ++segment) {
+                    const uint32_t a = ring * (segments + 1) + segment;
+                    const uint32_t b = a + segments + 1;
+                    if (ring != 0) {
+                        mesh.indices.insert(mesh.indices.end(), { a, b, a + 1, });
+                    }
+                    if (ring != rings - 1) {
+                        mesh.indices.insert(mesh.indices.end(), { a + 1, b, b + 1 });
+                    }
+                }
+            }
+            mesh.subMeshData.push_back(static_cast<uint32_t>(mesh.indices.size()));
             const auto bounds = scene.registerMesh(mesh);
             return { ctx.resources.createMesh(mesh), bounds };
         }
@@ -108,24 +106,37 @@ namespace tr::Loading {
     std::unique_ptr<Data::Scene> Loader::loadDefaultScene(LoadContext ctx) {
         auto scene = std::make_unique<Scene>();
 
-        const auto cubeMaterial = createCubeMaterial(*scene, ctx);
+        constexpr uint32_t gridSize = 7;
+        constexpr float spacing = 2.5f;
+        constexpr float radius = 1.0f;
+        constexpr float halfSpan = (gridSize - 1) * spacing * 0.5f;
         const auto floorMaterial = createPlaneMaterial(*scene, ctx);
-        const auto cubeMesh = createCubeMesh(*scene, ctx);
+        const auto sphereMesh = createSphereMesh(*scene, ctx);
         const auto planeMesh = createPlaneMesh(*scene, ctx);
 
-        auto cube = std::make_unique<Data::GameObject>();
-        cube->mesh = cubeMesh.handle;
-        cube->materials.push_back(cubeMaterial);
-        cube->transform.position = glm::vec3(0.0f, 0.25f, 0.0f);
-        cube->transform.eulerAngles = glm::vec3(0.0f, 20.0f, 0.0f);
-        cube->transform.scale = glm::vec3(1.0f, 0.25f, 1.5f);
-        scene->includeBounds(cubeMesh.bounds, cube->transform.getMatrix());
-        scene->getObjects().push_back(std::move(cube));
+        for (uint32_t y = 0; y < gridSize; ++y) {
+            for (uint32_t x = 0; x < gridSize; ++x) {
+                auto sphere = std::make_unique<Data::GameObject>();
+                sphere->mesh = sphereMesh.handle;
+                sphere->materials.push_back(createSphereMaterial(
+                    *scene, ctx,
+                    static_cast<float>(x) / (gridSize - 1),
+                    static_cast<float>(y) / (gridSize - 1)
+                ));
+                // Grid Y runs along world Z; world Y is height.
+                sphere->transform.position = glm::vec3(
+                    x * spacing - halfSpan, radius, y * spacing - halfSpan
+                );
+                sphere->transform.scale = glm::vec3(radius);
+                scene->includeBounds(sphereMesh.bounds, sphere->transform.getMatrix());
+                scene->getObjects().push_back(std::move(sphere));
+            }
+        }
 
         auto plane = std::make_unique<Data::GameObject>();
         plane->mesh = planeMesh.handle;
         plane->materials.push_back(floorMaterial);
-        plane->transform.scale = glm::vec3(5.0f);
+        plane->transform.scale = glm::vec3(gridSize * spacing + 2.0f);
         scene->includeBounds(planeMesh.bounds, plane->transform.getMatrix());
         scene->getObjects().push_back(std::move(plane));
 
