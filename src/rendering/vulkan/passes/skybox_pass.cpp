@@ -281,10 +281,14 @@ namespace tr::Rendering::Vulkan {
                 0,
                 vk::ArrayProxy<const float>(
                     {
-                        environment.skyboxColor.x,
-                        environment.skyboxColor.y,
-                        environment.skyboxColor.z,
-                        environment.skyboxRotation
+                        environment.skyboxTint.x,
+                        environment.skyboxTint.y,
+                        environment.skyboxTint.z,
+                        environment.skyboxRotation,
+                        environment.skyboxExposure,
+                        0.0f,
+                        0.0f,
+                        0.0f,
                     }
                 )
             );

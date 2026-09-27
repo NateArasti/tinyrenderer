@@ -178,8 +178,9 @@ namespace tr {
                         renderer->getResources().destroyCubemap(environment.skyboxHandle);
                         environment.skyboxHandle = {};
                     }
-                    ImGui::ColorEdit3("Skybox Color", &environment.skyboxColor.x);
-                    ImGui::SliderAngle("Skybox Rotation", &environment.skyboxRotation);
+                    ImGui::ColorEdit3("Tint", &environment.skyboxTint.x);
+                    ImGui::SliderFloat("Exposure", &environment.skyboxExposure, 0.0f, 10.0f);
+                    ImGui::SliderAngle("Rotation", &environment.skyboxRotation);
                     ImGui::Separator();
                     ImGui::ColorEdit3("Clear Color", &environment.clearColor.x);
 

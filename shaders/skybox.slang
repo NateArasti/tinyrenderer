@@ -1,8 +1,10 @@
 import scene_data;
 
 struct PushConstants {
-    float3 color;
+    float3 tint;
     float rotation;
+    float exposure;
+    float3 _pad;
 };
 
 [[vk::push_constant]] PushConstants pcs;
@@ -42,5 +44,12 @@ float4 fragMain(VSOutput input) : SV_TARGET {
         worldDirection.y,
         s * worldDirection.x + c * worldDirection.z
     );
-    return float4(cubemap.Sample(rotatedDirection).rgb * pcs.color, 1.0);
+
+    float3 color = cubemap.Sample(rotatedDirection).rgb * pcs.tint;
+
+    color *= pcs.exposure;
+
+    color = pow(color, float3(1.0 / 2.2));
+
+    return float4(color, 1.0);
 }
