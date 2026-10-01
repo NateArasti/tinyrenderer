@@ -168,7 +168,7 @@ namespace tr {
             envWindow = UI::UIWindow{
                 .name = "Environment",
                 .width = 350.0f,
-                .height = 150.0f,
+                .height = 160.0f,
                 .drawCallback = [this]() {
                     if (ImGui::Button("Load Skybox")) {
                         loadSkybox();

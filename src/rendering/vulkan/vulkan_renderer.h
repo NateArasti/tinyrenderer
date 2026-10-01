@@ -44,12 +44,16 @@ namespace tr::Rendering::Vulkan {
         std::unique_ptr<UIPass> _uiPass;
 
         vk::raii::DescriptorPool _descriptorPool = nullptr;
+        
         vk::raii::DescriptorSetLayout _descriptorSetLayout = nullptr;
         std::vector<vk::raii::DescriptorSet> _descriptorSets;
-
-        std::vector<vk::raii::Buffer> _uniformBuffers;
-        std::vector<vk::raii::DeviceMemory> _uniformBuffersMemory;
+        std::vector<GPUBuffer> _uniformBuffers;
         std::vector<void*> _uniformBuffersMapped;
+
+        vk::raii::DescriptorSetLayout _environmentDescriptorSetLayout = nullptr;
+        std::vector<vk::raii::DescriptorSet> _environmentDescriptorSets;
+        std::vector<GPUBuffer> _environmentBuffers;
+        std::vector<void*> _environmentBuffersMapped;
 
         vk::raii::CommandPool _commandPool = nullptr;
         std::vector<vk::raii::CommandBuffer> _commandBuffers;
@@ -78,6 +82,8 @@ namespace tr::Rendering::Vulkan {
         void createDescriptorSets();
         void createSyncObjects();
         void recreateSwapchain();
+
+        void updateEnvironment(const Data::Environment& environment);
 
     public:
         explicit VulkanRenderer(const tr::App::Application& application);

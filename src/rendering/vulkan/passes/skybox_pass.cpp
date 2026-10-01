@@ -11,7 +11,7 @@ namespace tr::Rendering::Vulkan {
         VulkanResources& resources,
         GBuffer& gBuffer,
         ResourceFactory& factory,
-        vk::DescriptorSetLayout sceneLayout,
+        uint32_t frameCount,
         vk::Format colorFormat
     ) :
         _vulkanContext(context),
@@ -28,53 +28,58 @@ namespace tr::Rendering::Vulkan {
             vk::BufferUsageFlagBits::eVertexBuffer
         );
 
-        const vk::DescriptorSetLayoutBinding cubemapBinding{
-            .binding = 0,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = 1,
-            .stageFlags = vk::ShaderStageFlagBits::eFragment
-        };
-        _cubemapLayout = vk::raii::DescriptorSetLayout(
-            context.device,
-            vk::DescriptorSetLayoutCreateInfo{
-                .bindingCount = 1,
-                .pBindings = &cubemapBinding
+        const std::array skyboxBindings = {
+            vk::DescriptorSetLayoutBinding {
+                .binding = 0,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eFragment
+            },
+            vk::DescriptorSetLayoutBinding {
+                .binding = 1,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eFragment
+            },
+            vk::DescriptorSetLayoutBinding {
+                .binding = 2,
+                .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eFragment
             }
-        );
-
-        const vk::DescriptorPoolSize poolSize{
-            .type = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = 1
         };
-        _descriptorPool = vk::raii::DescriptorPool(
-            context.device,
-            vk::DescriptorPoolCreateInfo{
-                .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-                .maxSets = 1,
-                .poolSizeCount = 1,
-                .pPoolSizes = &poolSize
+        _descriptorSetLayout = vk::raii::DescriptorSetLayout(_vulkanContext.device, {
+            .bindingCount = static_cast<uint32_t>(skyboxBindings.size()),
+            .pBindings = skyboxBindings.data()
+        });
+        const std::array poolSizes{
+            vk::DescriptorPoolSize{
+                .type = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 2 * frameCount
+            },
+            vk::DescriptorPoolSize{
+                .type = vk::DescriptorType::eCombinedImageSampler,
+                .descriptorCount = frameCount
             }
-        );
-        _cubemapSet = std::move(context.device.allocateDescriptorSets({
+        };
+        _descriptorPool = vk::raii::DescriptorPool(context.device, {
+            .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
+            .maxSets = frameCount,
+            .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+            .pPoolSizes = poolSizes.data()
+        });
+        const std::vector<vk::DescriptorSetLayout> layouts(frameCount, *_descriptorSetLayout);
+        _descriptorSets = context.device.allocateDescriptorSets({
             .descriptorPool = *_descriptorPool,
-            .descriptorSetCount = 1,
-            .pSetLayouts = &*_cubemapLayout
-        }).front());
-        
-        const vk::PushConstantRange pushConstantRange{
-            .stageFlags = vk::ShaderStageFlagBits::eFragment,
-            .offset = 0,
-            .size = 4 * sizeof(float)
-        };
-
-        const std::array setLayouts{ sceneLayout, *_cubemapLayout };
+            .descriptorSetCount = frameCount,
+            .pSetLayouts = layouts.data()
+        });
+        const std::array setLayouts{ *_descriptorSetLayout };
         _pipelineLayout = vk::raii::PipelineLayout(
             context.device,
             vk::PipelineLayoutCreateInfo{
                 .setLayoutCount = static_cast<uint32_t>(setLayouts.size()),
                 .pSetLayouts = setLayouts.data(),
-                .pushConstantRangeCount = 1,
-                .pPushConstantRanges = &pushConstantRange
             }
         );
         createPipeline(colorFormat);
@@ -189,25 +194,13 @@ namespace tr::Rendering::Vulkan {
         createPipeline(colorFormat);
     }
 
-    void SkyboxPass::bindCubemap(const VulkanCubemap& cubemap) {
-        const vk::DescriptorImageInfo imageInfo{
-            .sampler = *cubemap.sampler,
-            .imageView = *cubemap.image.view,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-        };
-        _vulkanContext.device.updateDescriptorSets({{
-            .dstSet = *_cubemapSet,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &imageInfo
-        }}, {});
-    }
-
     void SkyboxPass::record(
         vk::raii::CommandBuffer& commandBuffer,
         const FrameContext& frame,
-        const Data::Environment& environment
+        const Data::Environment& environment,
+        uint32_t frameIndex,
+        const vk::DescriptorBufferInfo& sceneBuffer,
+        const vk::DescriptorBufferInfo& environmentBuffer
     ) {
 #ifndef NDEBUG
         vk::DebugUtilsLabelEXT labelInfo{};
@@ -243,7 +236,10 @@ namespace tr::Rendering::Vulkan {
             })
         };
         const vk::RenderingInfo renderingInfo{
-            .renderArea = { .offset = { 0, 0 }, .extent = frame.extent },
+            .renderArea = {
+                .offset = { 0, 0 },
+                .extent = frame.extent
+            },
             .layerCount = 1,
             .colorAttachmentCount = 1,
             .pColorAttachments = &colorAttachment
@@ -261,36 +257,46 @@ namespace tr::Rendering::Vulkan {
 
         const VulkanCubemap* cubemap = _resources.cubemap(environment.skyboxHandle);
         if (cubemap != nullptr) {
-            if (_boundCubemap != cubemap->handle) {
-                bindCubemap(*cubemap);
-                _boundCubemap = cubemap->handle;
-            }
+            const auto descriptorSet = *_descriptorSets[frameIndex];
+            const vk::DescriptorImageInfo cubemapInfo{
+                .sampler = *cubemap->sampler,
+                .imageView = *cubemap->skybox.view,
+                .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+            };
+            _vulkanContext.device.updateDescriptorSets(
+                {
+                    {
+                        .dstSet = descriptorSet,
+                        .dstBinding = 0,
+                        .descriptorCount = 1,
+                        .descriptorType = vk::DescriptorType::eUniformBuffer,
+                        .pBufferInfo = &environmentBuffer
+                    },
+                    {
+                        .dstSet = descriptorSet,
+                        .dstBinding = 1,
+                        .descriptorCount = 1,
+                        .descriptorType = vk::DescriptorType::eUniformBuffer,
+                        .pBufferInfo = &sceneBuffer
+                    },
+                    {
+                        .dstSet = descriptorSet,
+                        .dstBinding = 2,
+                        .descriptorCount = 1,
+                        .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                        .pImageInfo = &cubemapInfo
+                    }
+                },
+                {}
+            );
             commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *_pipeline);
             commandBuffer.bindVertexBuffers(0, *_vertexBuffer.buffer, { 0 });
             commandBuffer.bindDescriptorSets(
                 vk::PipelineBindPoint::eGraphics,
                 *_pipelineLayout,
                 0,
-                { frame.sceneDescriptorSet, *_cubemapSet },
+                { descriptorSet },
                 {}
-            );
-
-            commandBuffer.pushConstants(
-                *_pipelineLayout,
-                vk::ShaderStageFlagBits::eFragment,
-                0,
-                vk::ArrayProxy<const float>(
-                    {
-                        environment.skyboxTint.x,
-                        environment.skyboxTint.y,
-                        environment.skyboxTint.z,
-                        environment.skyboxRotation,
-                        environment.skyboxExposure,
-                        0.0f,
-                        0.0f,
-                        0.0f,
-                    }
-                )
             );
 
             commandBuffer.draw(3, 1, 0, 0);

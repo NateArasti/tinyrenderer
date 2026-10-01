@@ -1,5 +1,7 @@
 import light;
+import environment;
 import scene_data;
+import math;
 
 struct PushConstants {
     float4x4 model;
@@ -25,6 +27,7 @@ struct UniformParams {
 [[vk::push_constant]] PushConstants pcs;
 [[vk::binding(0, 0)]] ConstantBuffer<SceneData> sceneData;
 [[vk::binding(1, 0)]] Sampler2D shadowMap;
+
 [[vk::binding(0, 1)]] ConstantBuffer<UniformParams> params;
 [[vk::binding(1, 1)]] Sampler2D diffuseMap;
 [[vk::binding(2, 1)]] Sampler2D emissionMap;
@@ -33,6 +36,9 @@ struct UniformParams {
 [[vk::binding(5, 1)]] Sampler2D roughnessMap;
 [[vk::binding(6, 1)]] Sampler2D specularMap;
 [[vk::binding(7, 1)]] Sampler2D opacityMap;
+
+[[vk::binding(0, 2)]] ConstantBuffer<EnvironmentData> environmentData;
+[[vk::binding(1, 2)]] SamplerCube irradianceMap;
 
 struct VSInput {
     float3 position : POSITION;
@@ -48,36 +54,6 @@ struct VSOutput {
     float2 uv : TEXCOORD0;
     float4 color : COLOR;
 };
-
-float calculateHardShadow(float4 shadowCoord, float NdotL) {
-    float3 projCoords = shadowCoord.xyz / shadowCoord.w;
-    projCoords.xy = projCoords.xy * 0.5 + 0.5;
-    float closestDepth = shadowMap.Sample(projCoords.xy).r;
-    float currentDepth = projCoords.z;
-    float bias = max(0.005 * (1.0 - NdotL), 0.0015);
-    float shadow = currentDepth - bias > closestDepth ? 0.0 : 1.0;
-    return shadow;
-} 
-
-float calculateSoftShadow(float4 shadowCoord, float NdotL) {
-    float3 projCoords = shadowCoord.xyz / shadowCoord.w;
-    projCoords.xy = projCoords.xy * 0.5 + 0.5;
-    float bias = max(0.005 * (1.0 - NdotL), 0.0015);
-    float currentDepth = projCoords.z - bias;
-
-    uint width, height;
-    shadowMap.GetDimensions(width, height);
-    float2 texelSize = 1.0 / float2(width, height);
-
-    float shadow = 0.0;
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
-            float2 offset = float2(x, y) * texelSize;
-            shadow += shadowMap.SampleCmpLevelZero(projCoords.xy + offset, currentDepth);
-        }
-    }
-    return shadow / 9.0;
-}
 
 float3 applyNormalMap(float3 normal, float3 worldPos, float2 uv) {
     float3 positionDx = ddx(worldPos);
@@ -137,7 +113,7 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     if (params.hasRoughnessMap > 0.5) {
         roughness *= roughnessMap.Sample(vertIn.uv).r;
     }
-    roughness = saturate(roughness);
+    roughness = clamp(roughness, 0.04, 1.0);
 
     float3 F0 = params.specularColor.rgb;
     if (params.hasSpecularMap > 0.5) {
@@ -145,45 +121,33 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     }
     F0 = lerp(F0, baseColor.rgb, metallic);
 
-    float3 Lo = float3(0);
-
     float3 N = normalize(vertIn.normal);
     if (params.hasNormalMap > 0.5) {
         N = applyNormalMap(N, vertIn.worldPos, vertIn.uv);
     }
+    
+    float3 Lo = float3(0);
     float3 V = normalize(sceneData.cameraPos - vertIn.worldPos);
     float3 L = normalize(-sceneData.lightDirection);
 
     float NdotL = max(dot(N, L), 0.0);
-    float NdotV = max(dot(N, V), 0.0);
 
-    if (NdotL > 0.0 && NdotV > 0.0) {
-        float3 H = normalize(V + L);
-        float NdotH = max(dot(N, H), 0.0);
-        float cosTheta = max(dot(H, V), 0.0);
+    float4 shadowCoord = mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1));
+    float shadow = isFrontFace && NdotL > 0.0 
+        ? calculateSoftShadow(shadowMap, shadowCoord, NdotL)
+        : 1.0;
+    float3 radiance = sceneData.lightColor.rgb * sceneData.lightIntensity;
 
-        float NDF = distributionGGX(N, H, roughness);
-        float G = geometrySmith(N, V, L, roughness);
-        float3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+    Lo += calculateLight(baseColor.rgb, N, L, V, F0, roughness, metallic) * radiance * shadow;
 
-        float3 kS = F;
-        float3 kD = float3(1.0) - kS;
-        kD *= 1.0 - metallic;
-
-        float3 numerator = NDF * G * F;
-        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-        float3 specular = numerator / denominator;
-
-        float shadow = isFrontFace && NdotL > 0.0
-                           ? calculateSoftShadow(mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1)), NdotL)
-                           : 1.0;
-
-        float3 radiance = sceneData.lightColor.rgb * sceneData.lightIntensity;
-        Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL * shadow;
-    }
-
-    float3 ambientKD = 1.0 - metallic;
-    float3 ambient = ambientKD * params.ambientColor.rgb * baseColor.rgb;
+    float3 kS = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    float3 kD = (1.0 - kS) * (1.0 - metallic);
+    float3 rotatedDirection = rotate(N, float3(0, 1, 0), environmentData.rotation);
+    float3 irradiance = environmentData.hasSkybox > 0.5 
+        ? irradianceMap.Sample(rotatedDirection).rgb 
+        : environmentData.clearColor;
+    irradiance *= environmentData.tint * environmentData.exposure;
+    float3 ambient = kD * irradiance * baseColor.rgb;
 
     float3 emission = params.emissionColor.rgb;
     if (params.hasEmissionMap > 0.5) {
@@ -192,7 +156,5 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
 
     float3 color = ambient + Lo + emission;
 
-    color = pow(color, float3(1.0 / 2.2));
-
-    return float4(color, baseColor.a);
+    return float4(color, 1.0);
 }

@@ -28,6 +28,7 @@ namespace tr::Rendering::Vulkan {
         CubemapConverter _cubemapConverter;
 
         const vk::raii::DescriptorSetLayout& _sceneDescriptorSetLayout;
+        const vk::raii::DescriptorSetLayout& _environmentDescriptorSetLayout;
         vk::Format _colorFormat;
 
         vk::raii::DescriptorPool _materialDescriptorPool = nullptr;
@@ -39,6 +40,7 @@ namespace tr::Rendering::Vulkan {
         VulkanShader _opaqueShader;
         VulkanShader _transparentShader;
         VulkanTexture _fallbackTexture;
+        VulkanCubemap _fallbackCubemap;
         std::unordered_map<tr::Resources::Handle<tr::Data::Cubemap>, VulkanCubemap> _cubemaps;
         std::unordered_map<tr::Resources::Handle<tr::Data::Texture>, VulkanTexture> _textures;
         std::unordered_map<tr::Resources::Handle<tr::Data::Mesh>, VulkanMesh> _meshes;
@@ -46,6 +48,7 @@ namespace tr::Rendering::Vulkan {
 
         void createDescriptorPool();
         void createFallbackTexture();
+        void createFallbackCubemap();
         VulkanShader createShader(const tr::Data::Shader& shader, tr::Data::BlendMode blendMode);
 
     public:
@@ -53,6 +56,7 @@ namespace tr::Rendering::Vulkan {
             VulkanContext& context,
             ResourceFactory& factory,
             const vk::raii::DescriptorSetLayout& sceneDescriptorSetLayout,
+            const vk::raii::DescriptorSetLayout& environmentDescriptorSetLayout,
             vk::Format colorFormat
         );
 
@@ -77,5 +81,6 @@ namespace tr::Rendering::Vulkan {
         const VulkanMesh& mesh(tr::Resources::Handle<tr::Data::Mesh> handle) const;
         const VulkanMaterial& material(tr::Resources::Handle<tr::Data::Material> handle) const;
         const VulkanCubemap* cubemap(Resources::Handle<Data::Cubemap> handle) const;
+        const VulkanCubemap* fallbackCubemap() const { return &_fallbackCubemap; };
     };
 }

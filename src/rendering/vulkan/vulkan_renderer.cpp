@@ -39,6 +39,7 @@ namespace tr::Rendering::Vulkan {
             _vulkanContext,
             _resourceFactory,
             _descriptorSetLayout,
+            _environmentDescriptorSetLayout,
             _swapchain.format()
         );
         _gBuffer = std::make_unique<GBuffer>(
@@ -51,7 +52,7 @@ namespace tr::Rendering::Vulkan {
             *_resources,
             *_gBuffer,
             _resourceFactory,
-            *_descriptorSetLayout,
+            MAX_FRAMES_IN_FLIGHT,
             _swapchain.format()
         );
         _shadowPass = std::make_unique<ShadowPass>(_vulkanContext, _resourceFactory, *_resources);
@@ -63,15 +64,21 @@ namespace tr::Rendering::Vulkan {
 		createDescriptorPool();
 		createDescriptorSets();
         createSyncObjects();
+
     }
 
     VulkanRenderer::~VulkanRenderer() {
         _vulkanContext.device.waitIdle();
         _commandBuffers.clear();
         _descriptorSets.clear();
+        _environmentDescriptorSets.clear();
+        _skyboxPass.reset();
+        for (auto& buffer : _environmentBuffers) {
+            buffer.memory.unmapMemory();
+            buffer.buffer.clear();
+        }
         _uniformBuffers.clear();
-        _uniformBuffersMemory.clear();
-        _uniformBuffers.clear();
+        _environmentBuffers.clear();
     }
 
     void VulkanRenderer::resize(uint32_t, uint32_t) {
@@ -163,7 +170,7 @@ namespace tr::Rendering::Vulkan {
 
 #pragma region Vulkan initialization
 	void VulkanRenderer::createDescriptorSetLayout() {
-		std::array bindings = {
+		const std::array sceneBindings = {
             vk::DescriptorSetLayoutBinding(
                 0,
                 vk::DescriptorType::eUniformBuffer,
@@ -179,11 +186,33 @@ namespace tr::Rendering::Vulkan {
                 nullptr
             ),
         };
-        vk::DescriptorSetLayoutCreateInfo layoutInfo{
-            .bindingCount = static_cast<uint32_t>(bindings.size()),
-            .pBindings = bindings.data()
+        _descriptorSetLayout = vk::raii::DescriptorSetLayout(_vulkanContext.device, {
+            .bindingCount = static_cast<uint32_t>(sceneBindings.size()),
+            .pBindings = sceneBindings.data()
+        });
+
+		const std::array environmentBindings = {
+            vk::DescriptorSetLayoutBinding(
+                0,
+                vk::DescriptorType::eUniformBuffer,
+                1,
+                vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment,
+                nullptr
+            ),
+            vk::DescriptorSetLayoutBinding(
+                1,
+                vk::DescriptorType::eCombinedImageSampler,
+                1,
+                vk::ShaderStageFlagBits::eFragment,
+                nullptr
+            ),
         };
-        _descriptorSetLayout = vk::raii::DescriptorSetLayout(_vulkanContext.device, layoutInfo);
+        _environmentDescriptorSetLayout = vk::raii::DescriptorSetLayout(_vulkanContext.device, {
+            .bindingCount = static_cast<uint32_t>(environmentBindings.size()),
+            .pBindings = environmentBindings.data()
+        });
+
+
     }
 
     void VulkanRenderer::createCommandPool() {
@@ -203,33 +232,14 @@ namespace tr::Rendering::Vulkan {
         _commandBuffers = vk::raii::CommandBuffers(_vulkanContext.device, allocateInfo);
     }
 
-    void VulkanRenderer::createUniformBuffers() {
-        _uniformBuffers.clear();
-        _uniformBuffersMemory.clear();
-        _uniformBuffersMapped.clear();
-
-		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-		{
-			vk::DeviceSize bufferSize = sizeof(SceneData);
-			GPUBuffer buffer = _resourceFactory.createBuffer(
-                bufferSize,
-                vk::BufferUsageFlagBits::eUniformBuffer,
-                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
-            );
-            _uniformBuffers.emplace_back(std::move(buffer.buffer));
-			_uniformBuffersMemory.emplace_back(std::move(buffer.memory));
-			_uniformBuffersMapped.emplace_back(_uniformBuffersMemory.back().mapMemory(0, buffer.size));
-		}
-    }
-
 	void VulkanRenderer::createDescriptorPool() {
 		std::array poolSize {
-            vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT),
-            vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, MAX_FRAMES_IN_FLIGHT)
+            vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 2 * MAX_FRAMES_IN_FLIGHT),
+            vk::DescriptorPoolSize(vk::DescriptorType::eCombinedImageSampler, 2 * MAX_FRAMES_IN_FLIGHT)
         };
         vk::DescriptorPoolCreateInfo poolInfo{
             .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-            .maxSets = MAX_FRAMES_IN_FLIGHT,
+            .maxSets = 2 * MAX_FRAMES_IN_FLIGHT,
             .poolSizeCount = static_cast<uint32_t>(poolSize.size()),
             .pPoolSizes = poolSize.data()
         };
@@ -244,12 +254,18 @@ namespace tr::Rendering::Vulkan {
             .pSetLayouts = layouts.data()
         };
 
-		_descriptorSets = _vulkanContext.device.allocateDescriptorSets(allocInfo);
-
+        _descriptorSets = _vulkanContext.device.allocateDescriptorSets(allocInfo);
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
+            _uniformBuffers.push_back(_resourceFactory.createBuffer(
+                8 * sizeof(float), vk::BufferUsageFlagBits::eUniformBuffer,
+                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+            ));
+            _uniformBuffersMapped.push_back(
+                _uniformBuffers.back().memory.mapMemory(0, _environmentBuffers.back().size)
+            );
             vk::DescriptorBufferInfo bufferInfo{
-                .buffer = _uniformBuffers[i],
+                .buffer = _uniformBuffers[i].buffer,
                 .offset = 0,
                 .range = sizeof(SceneData)
             };
@@ -271,6 +287,18 @@ namespace tr::Rendering::Vulkan {
             };
             _vulkanContext.device.updateDescriptorSets({ sceneDataDescriptorWrite, shadowMapDescriptorWrite }, {});
 		}
+
+        std::fill(layouts.begin(), layouts.end(), *_environmentDescriptorSetLayout);
+        _environmentDescriptorSets = _vulkanContext.device.allocateDescriptorSets(allocInfo);
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            _environmentBuffers.push_back(_resourceFactory.createBuffer(
+                8 * sizeof(float), vk::BufferUsageFlagBits::eUniformBuffer,
+                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent
+            ));
+            _environmentBuffersMapped.push_back(
+                _environmentBuffers.back().memory.mapMemory(0, _environmentBuffers.back().size)
+            );
+        }
     }
 
     void VulkanRenderer::createSyncObjects() {
@@ -365,8 +393,7 @@ namespace tr::Rendering::Vulkan {
             vk::ImageLayout::eUndefined,
             vk::ImageLayout::eColorAttachmentOptimal,
             {},
-            vk::AccessFlagBits2::eColorAttachmentRead |
-                vk::AccessFlagBits2::eColorAttachmentWrite,
+            vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite,
             vk::PipelineStageFlagBits2::eTopOfPipe,
             vk::PipelineStageFlagBits2::eColorAttachmentOutput,
             vk::ImageAspectFlagBits::eColor
@@ -380,18 +407,75 @@ namespace tr::Rendering::Vulkan {
         _frameStarted = true;
     }
 
+    void VulkanRenderer::updateEnvironment(const Data::Environment& environment) {
+        const auto* cubemap = _resources->cubemap(environment.skyboxHandle);
+        const std::array<float, 12> data{
+            environment.clearColor.x, environment.clearColor.y, environment.clearColor.z,
+            environment.skyboxRotation,
+            environment.skyboxTint.x, environment.skyboxTint.y, environment.skyboxTint.z,
+            environment.skyboxExposure,
+            0.0f, 0.0f, 0.0f,
+            cubemap != nullptr ? 1.0f : 0.0f,
+        };
+        if (cubemap == nullptr) {
+            cubemap = _resources->fallbackCubemap();
+        }
+        memcpy(_environmentBuffersMapped[_currentFrame], data.data(), sizeof(data));
+        const vk::DescriptorBufferInfo environmentInfo {
+            .buffer = *_environmentBuffers[_currentFrame].buffer,
+            .offset = 0,
+            .range = sizeof(data)
+        };
+        vk::DescriptorImageInfo irradianceInfo{
+            .sampler = *cubemap->sampler,
+            .imageView = *cubemap->irradiance.view,
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+        };
+        const auto environmentSet = *_environmentDescriptorSets[_currentFrame];
+        _vulkanContext.device.updateDescriptorSets(
+            {
+                {
+                    .dstSet = environmentSet,
+                    .dstBinding = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = vk::DescriptorType::eUniformBuffer,
+                    .pBufferInfo = &environmentInfo
+                },
+                {
+                    .dstSet = environmentSet,
+                    .dstBinding = 1,
+                    .descriptorCount = 1,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &irradianceInfo
+                }
+            },
+            {}
+        );
+    }
+
     void VulkanRenderer::renderSkybox(const tr::Data::Environment& environment) {
         if (!_frameStarted) return;
 
+        updateEnvironment(environment);
         _skyboxPass->record(
             _commandBuffers[_currentFrame],
             FrameContext{
                 .sceneDescriptorSet = *_descriptorSets[_currentFrame],
+                .environmentDescriptorSet = *_environmentDescriptorSets[_currentFrame],
                 .targetImage = _swapchain.image(_currentImageIndex),
                 .targetImageView = *_swapchain.imageView(_currentImageIndex),
                 .extent = _swapchain.extent()
             },
-            environment
+            environment,
+            _currentFrame,
+            vk::DescriptorBufferInfo{
+                .buffer = *_uniformBuffers[_currentFrame].buffer, .offset = 0, .range = sizeof(SceneData)
+            },
+            vk::DescriptorBufferInfo{
+                .buffer = *_environmentBuffers[_currentFrame].buffer,
+                .offset = 0,
+                .range = _environmentBuffers[_currentFrame].size
+            }
         );
     }
 
@@ -410,6 +494,7 @@ namespace tr::Rendering::Vulkan {
             _commandBuffers[_currentFrame],
             FrameContext{
                 .sceneDescriptorSet = *_descriptorSets[_currentFrame],
+                .environmentDescriptorSet = *_environmentDescriptorSets[_currentFrame],
                 .targetImage = _swapchain.image(_currentImageIndex),
                 .targetImageView = *_swapchain.imageView(_currentImageIndex),
                 .extent = _swapchain.extent()

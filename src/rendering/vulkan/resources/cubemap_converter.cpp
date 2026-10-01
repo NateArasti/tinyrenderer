@@ -1,10 +1,12 @@
 #include "cubemap_converter.h"
 
 #include <array>
+#include <bit>
 #include <stdexcept>
 #include <vector>
 
 #include "equirectangular_conversion.h"
+#include "irradiance_convolution.h"
 #include "import_error.h"
 
 namespace tr::Rendering::Vulkan {
@@ -67,20 +69,25 @@ namespace tr::Rendering::Vulkan {
             vk::SamplerCreateInfo{
                 .magFilter = vk::Filter::eLinear,
                 .minFilter = vk::Filter::eLinear,
-                .mipmapMode = vk::SamplerMipmapMode::eNearest,
+                .mipmapMode = vk::SamplerMipmapMode::eLinear,
                 .addressModeU = vk::SamplerAddressMode::eRepeat,
                 .addressModeV = vk::SamplerAddressMode::eClampToEdge,
                 .addressModeW = vk::SamplerAddressMode::eClampToEdge,
-                .maxLod = 0.0f
+                .maxLod = VK_LOD_CLAMP_NONE
             }
         );
+
+        const tr::Data::EmbeddedShaders::EquirectangularConversion conversion;
+        _environmentPipeline = createPipeline(conversion, CUBEMAPS_FORMAT);
+
+        const tr::Data::EmbeddedShaders::IrradianceConvolution irradiance;
+        _irradiancePipeline = createPipeline(irradiance, CUBEMAPS_FORMAT);
     }
 
-    const CubemapConverter::ConversionPipeline& CubemapConverter::pipeline(vk::Format destinationFormat) {
-        if (_pipelines.contains(destinationFormat)) {
-            return _pipelines[destinationFormat];
-        }
-
+    CubemapConverter::ConversionPipeline CubemapConverter::createPipeline(
+        const tr::Data::Shader& shader,
+        vk::Format destinationFormat
+    ) {
         const auto formatProperties = _context.physicalDevice.getFormatProperties(destinationFormat);
         if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eColorAttachment)) {
             throw std::runtime_error(
@@ -88,8 +95,7 @@ namespace tr::Rendering::Vulkan {
             );
         }
 
-        tr::Data::EmbeddedShaders::EquirectangularConversion shader;
-        const auto& code = static_cast<const tr::Data::Shader&>(shader).getCode();
+        const auto& code = shader.getCode();
         vk::raii::ShaderModule shaderModule(
             _context.device,
             vk::ShaderModuleCreateInfo{
@@ -213,9 +219,8 @@ namespace tr::Rendering::Vulkan {
             nullptr,
             pipelineInfo.get<vk::GraphicsPipelineCreateInfo>()
         );
-        _pipelines[destinationFormat] = std::move(result);
 
-        return _pipelines[destinationFormat];
+        return result;
     }
 
     vk::raii::CommandBuffer CubemapConverter::beginCommands() {
@@ -244,41 +249,39 @@ namespace tr::Rendering::Vulkan {
         _context.queue.waitIdle();
     }
 
-    GPUImage CubemapConverter::convertEquirectangular(
+    GPUImage CubemapConverter::renderFaces(
         const GPUImage& source,
-        vk::Format destinationFormat
+        CubemapConverter::ConversionPipeline& pipeline,
+        uint32_t faceSize,
+        bool generateMipmaps
     ) {
-        if (
-            source.extent.width < 4 ||
-            source.extent.height < 2 ||
-            source.extent.width != source.extent.height * 2
-        ) {
-            throw tr::Loading::ImportError(
-                "Equirectangular image must have a 2:1 aspect ratio"
-            );
-        }
-
-        const ConversionPipeline& conversionPipeline = pipeline(destinationFormat);
-
-        const uint32_t faceSize = source.extent.width / 4;
-        GPUImage target = _factory.createImage({
-            .flags = vk::ImageCreateFlagBits::eCubeCompatible,
-            .imageType = vk::ImageType::e2D,
-            .viewType = vk::ImageViewType::eCube,
-            .format = destinationFormat,
-            .extent = { faceSize, faceSize, 1 },
-            .mipLevels = 1,
-            .arrayLayers = 6,
-            .usage = vk::ImageUsageFlagBits::eColorAttachment |
-                vk::ImageUsageFlagBits::eSampled
-        });
+        const uint32_t mipLevels = generateMipmaps ? std::bit_width(faceSize) : 1;
+        GPUImage target = _factory.createImage(
+            {
+                .flags = vk::ImageCreateFlagBits::eCubeCompatible,
+                .imageType = vk::ImageType::e2D,
+                .viewType = vk::ImageViewType::eCube,
+                .format = CUBEMAPS_FORMAT,
+                .extent = { faceSize, faceSize, 1 },
+                .mipLevels = mipLevels,
+                .arrayLayers = 6,
+                .usage =
+                    vk::ImageUsageFlagBits::eColorAttachment |
+                    vk::ImageUsageFlagBits::eSampled |
+                    (
+                        generateMipmaps
+                        ? vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst
+                        : vk::ImageUsageFlags{}
+                    )
+            }
+        );
 
         std::vector<vk::raii::ImageView> faceViews;
         faceViews.reserve(6);
         for (uint32_t face = 0; face < 6; ++face) {
             faceViews.push_back(_factory.createImageView(target.image, {
                 .viewType = vk::ImageViewType::e2D,
-                .format = destinationFormat,
+                .format = CUBEMAPS_FORMAT,
                 .aspectMask = vk::ImageAspectFlagBits::eColor,
                 .baseMipLevel = 0,
                 .mipLevels = 1,
@@ -338,12 +341,12 @@ namespace tr::Rendering::Vulkan {
         );
         commandBuffer.bindPipeline(
             vk::PipelineBindPoint::eGraphics,
-            *conversionPipeline.pipeline
+            *pipeline.pipeline
         );
         commandBuffer.bindVertexBuffers(0, *_vertexBuffer.buffer, { 0 });
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics,
-            *conversionPipeline.layout,
+            *pipeline.layout,
             0,
             { *_descriptorSet },
             {}
@@ -363,7 +366,7 @@ namespace tr::Rendering::Vulkan {
                 .pColorAttachments = &colorAttachment
             });
             commandBuffer.pushConstants(
-                *conversionPipeline.layout,
+                *pipeline.layout,
                 vk::ShaderStageFlagBits::eFragment,
                 0,
                 vk::ArrayProxy<const uint32_t>(face)
@@ -372,30 +375,28 @@ namespace tr::Rendering::Vulkan {
             commandBuffer.endRendering();
         }
 
-        const vk::ImageMemoryBarrier2 endBarrier{
-            .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-            .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
-            .dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
-            .dstAccessMask = vk::AccessFlagBits2::eShaderRead,
-            .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
-            .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-            .image = *target.image,
-            .subresourceRange = {
-                .aspectMask = vk::ImageAspectFlagBits::eColor,
-                .baseMipLevel = 0,
-                .levelCount = 1,
-                .baseArrayLayer = 0,
-                .layerCount = 6
-            }
-        };
-        commandBuffer.pipelineBarrier2({
-            .imageMemoryBarrierCount = 1,
-            .pImageMemoryBarriers = &endBarrier
-        });
+        _factory.generateMipmaps(commandBuffer, target, vk::ImageLayout::eColorAttachmentOptimal);
 
         submitCommands(commandBuffer);
         return target;
+    }
+
+    GPUImage CubemapConverter::convertEquirectangular(const GPUImage& source) {
+        if (
+            source.extent.width < 4 ||
+            source.extent.height < 2 ||
+            source.extent.width != source.extent.height * 2
+        ) {
+            throw tr::Loading::ImportError(
+                "Equirectangular image must have a 2:1 aspect ratio"
+            );
+        }
+
+        return renderFaces(source, _environmentPipeline, source.extent.width / 4, true);
+    }
+
+    GPUImage CubemapConverter::convolveIrradiance(const GPUImage& cubemap) {
+        static constexpr uint32_t IRRADIANCE_FACE_SIZE = 32;
+        return renderFaces(cubemap, _irradiancePipeline, IRRADIANCE_FACE_SIZE);
     }
 }

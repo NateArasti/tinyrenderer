@@ -12,16 +12,19 @@ namespace tr::Rendering::Vulkan {
         VulkanContext& context,
         ResourceFactory& factory,
         const vk::raii::DescriptorSetLayout& sceneDescriptorSetLayout,
+        const vk::raii::DescriptorSetLayout& environmentDescriptorSetLayout,
         vk::Format colorFormat
     ) :
         _context(context),
         _factory(factory),
         _cubemapConverter(_context, _factory),
         _sceneDescriptorSetLayout(sceneDescriptorSetLayout),
+        _environmentDescriptorSetLayout(environmentDescriptorSetLayout),
         _colorFormat(colorFormat)
     {
         createDescriptorPool();
         createFallbackTexture();
+        createFallbackCubemap();
     }
 
     void VulkanResources::createDescriptorPool() {
@@ -50,6 +53,8 @@ namespace tr::Rendering::Vulkan {
             1,
             1,
             vk::Format::eR8G8B8A8Unorm,
+            false,
+            1,
             false
         );
         _fallbackTexture.sampler = vk::raii::Sampler(
@@ -61,6 +66,43 @@ namespace tr::Rendering::Vulkan {
                 .addressModeU = vk::SamplerAddressMode::eRepeat,
                 .addressModeV = vk::SamplerAddressMode::eRepeat,
                 .addressModeW = vk::SamplerAddressMode::eRepeat
+            }
+        );
+    }
+
+    void VulkanResources::createFallbackCubemap() {
+        constexpr std::array<uint8_t, 4> color = { 0, 0, 0, 0 };
+        std::array<uint8_t, 4 * 6> layers;
+        for (int face = 0; face < 6; ++face) {
+            std::memcpy(layers.data() + face * 4, color.data(), 4);
+        }
+
+        _fallbackCubemap.skybox = _factory.uploadTexture(
+            std::as_bytes(std::span(layers)),
+            1, 1,
+            vk::Format::eR8G8B8A8Unorm,
+            false,
+            6,
+            true
+        );
+        _fallbackCubemap.irradiance = _factory.uploadTexture(
+            std::as_bytes(std::span(layers)),
+            1, 1,
+            vk::Format::eR8G8B8A8Unorm,
+            false,
+            6,
+            true
+        );
+        _fallbackCubemap.sampler = vk::raii::Sampler(
+            _context.device,
+            vk::SamplerCreateInfo{
+                .magFilter = vk::Filter::eLinear,
+                .minFilter = vk::Filter::eLinear,
+                .mipmapMode = vk::SamplerMipmapMode::eLinear,
+                .addressModeU = vk::SamplerAddressMode::eClampToEdge,
+                .addressModeV = vk::SamplerAddressMode::eClampToEdge,
+                .addressModeW = vk::SamplerAddressMode::eClampToEdge,
+                .maxLod = static_cast<float>(_fallbackCubemap.skybox.mipLevels - 1)
             }
         );
     }
@@ -207,7 +249,7 @@ namespace tr::Rendering::Vulkan {
                 .pBindings = shaderBindings.data()
             }
         );
-        const std::array setLayouts = { *_sceneDescriptorSetLayout, *materialLayout };
+        const std::array setLayouts = { *_sceneDescriptorSetLayout, *materialLayout, *_environmentDescriptorSetLayout };
         vk::raii::PipelineLayout pipelineLayout(
             _context.device,
             vk::PipelineLayoutCreateInfo{
@@ -278,7 +320,9 @@ namespace tr::Rendering::Vulkan {
             texture.width,
             texture.height,
             format,
-            true
+            true,
+            1,
+            false
         );
         const auto properties = _context.physicalDevice.getProperties();
         result.sampler = vk::raii::Sampler(_context.device, vk::SamplerCreateInfo{
@@ -306,15 +350,14 @@ namespace tr::Rendering::Vulkan {
         }
 
         const vk::Format sourceFormat = vk::Format::eR32G32B32A32Sfloat;
-        const vk::Format destinationFormat = source.hdr
-            ? vk::Format::eR16G16B16A16Sfloat
-            : vk::Format::eR8G8B8A8Srgb;
 
         GPUImage sourceImage = _factory.uploadTexture(
             std::as_bytes(std::span(source.pixels)),
             source.width,
             source.height,
             sourceFormat,
+            false,
+            1,
             false
         );
 
@@ -322,11 +365,8 @@ namespace tr::Rendering::Vulkan {
             .handle = { _cubemapIndex++, _generation }
         };
 
-        result.image = _cubemapConverter.convertEquirectangular(
-            sourceImage,
-            destinationFormat
-        );
-
+        result.skybox = _cubemapConverter.convertEquirectangular(sourceImage);
+        result.irradiance = _cubemapConverter.convolveIrradiance(result.skybox);
         result.sampler = vk::raii::Sampler(
             _context.device,
             vk::SamplerCreateInfo{
@@ -335,7 +375,8 @@ namespace tr::Rendering::Vulkan {
                 .mipmapMode = vk::SamplerMipmapMode::eLinear,
                 .addressModeU = vk::SamplerAddressMode::eClampToEdge,
                 .addressModeV = vk::SamplerAddressMode::eClampToEdge,
-                .addressModeW = vk::SamplerAddressMode::eClampToEdge
+                .addressModeW = vk::SamplerAddressMode::eClampToEdge,
+                .maxLod = static_cast<float>(result.skybox.mipLevels - 1)
             }
         );
 

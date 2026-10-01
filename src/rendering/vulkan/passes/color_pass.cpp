@@ -107,7 +107,7 @@ namespace tr::Rendering::Vulkan {
             vk::PipelineBindPoint::eGraphics,
             shader.pipelineLayout,
             0,
-            { frame.sceneDescriptorSet, *material.descriptorSet },
+            { frame.sceneDescriptorSet, *material.descriptorSet, frame.environmentDescriptorSet },
             nullptr
         );
         commandBuffer.pushConstants(

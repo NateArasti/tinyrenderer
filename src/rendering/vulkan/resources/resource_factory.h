@@ -51,21 +51,16 @@ namespace tr::Rendering::Vulkan {
             const vk::raii::Buffer& buffer,
             const vk::raii::Image& image,
             uint32_t width, 
-            uint32_t height
+            uint32_t height,
+            uint32_t layerCount
         );
         void copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size);
         
         void transitionImageLayout(
             const vk::raii::Image& image,
             const vk::ImageLayout oldLayout, const vk::ImageLayout newLayout,
-            uint32_t mipLevels
-        );
-
-        void generateMipmaps(
-            vk::raii::Image& image,
-            vk::Format imageFormat,
-            int32_t texWidth, int32_t texHeight,
-            uint32_t mipLevels
+            uint32_t mipLevels,
+            uint32_t layerCount
         );
 
     public:
@@ -75,6 +70,13 @@ namespace tr::Rendering::Vulkan {
         ResourceFactory& operator=(const ResourceFactory&) = delete;
         ResourceFactory(ResourceFactory&&) = delete;
         ResourceFactory& operator=(ResourceFactory&&) = delete;
+
+        // Base level is initialized; remaining levels are discarded. All levels end shader-readable.
+        void generateMipmaps(
+            vk::raii::CommandBuffer& commandBuffer,
+            const GPUImage& image,
+            vk::ImageLayout baseLayout
+        );
 
         GPUImage createImage(const ImageDescription& description);
         vk::raii::ImageView createImageView(const vk::raii::Image& target, const ImageViewDescription& description);
@@ -89,7 +91,9 @@ namespace tr::Rendering::Vulkan {
             std::span<const std::byte> pixels,
             uint32_t width, uint32_t height,
             vk::Format format,
-            bool generateMipmaps
+            bool generateMipmaps,
+            uint32_t arrayLayers,
+            bool isCube
         );
 
         GPUBuffer uploadBuffer(

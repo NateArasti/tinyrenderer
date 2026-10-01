@@ -32,7 +32,8 @@ namespace tr::Loading {
             auto material = std::make_unique<Material>();
             material->name = "sphere_m" + std::to_string(metallic) + "_r" + std::to_string(roughness);
             material->set("diffuseColor", glm::vec4(0.5f, 0.0f, 0.0f, 1.0f));
-            material->set("metallicFactor", metallic).set("roughnessFactor", roughness);
+            material->set("metallicFactor", metallic);
+            material->set("roughnessFactor", roughness);
             auto handle = scene.materials.add(std::move(material));
             ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
             return handle;
@@ -123,7 +124,6 @@ namespace tr::Loading {
                     static_cast<float>(x) / (gridSize - 1),
                     static_cast<float>(y) / (gridSize - 1)
                 ));
-                // Grid Y runs along world Z; world Y is height.
                 sphere->transform.position = glm::vec3(
                     x * spacing - halfSpan, radius, y * spacing - halfSpan
                 );

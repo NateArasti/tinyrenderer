@@ -60,6 +60,7 @@ namespace tr::Rendering::Vulkan {
 
     struct FrameContext {
         vk::DescriptorSet sceneDescriptorSet;
+        vk::DescriptorSet environmentDescriptorSet;
         vk::Image targetImage;
         vk::ImageView targetImageView;
         vk::Extent2D extent;

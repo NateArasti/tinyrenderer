@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
 #include <vulkan/vulkan_raii.hpp>
 
@@ -18,16 +20,13 @@ namespace tr::Rendering::Vulkan {
 
         GPUBuffer _vertexBuffer;
 
-        vk::raii::DescriptorSetLayout _cubemapLayout = nullptr;
+        vk::raii::DescriptorSetLayout _descriptorSetLayout = nullptr;
         vk::raii::DescriptorPool _descriptorPool = nullptr;
-        vk::raii::DescriptorSet _cubemapSet = nullptr;
+        std::vector<vk::raii::DescriptorSet> _descriptorSets;
 
         vk::raii::PipelineLayout _pipelineLayout = nullptr;
         vk::raii::Pipeline _pipeline = nullptr;
 
-        Resources::Handle<Data::Cubemap> _boundCubemap;
-
-        void bindCubemap(const VulkanCubemap& cubemap);
         void createPipeline(vk::Format colorFormat);
 
     public:
@@ -36,7 +35,7 @@ namespace tr::Rendering::Vulkan {
             VulkanResources& resources,
             GBuffer& gBuffer,
             ResourceFactory& factory,
-            vk::DescriptorSetLayout sceneLayout,
+            uint32_t frameCount,
             vk::Format colorFormat
         );
 
@@ -45,7 +44,10 @@ namespace tr::Rendering::Vulkan {
         void record(
             vk::raii::CommandBuffer& commandBuffer,
             const FrameContext& frame,
-            const Data::Environment& environment
+            const Data::Environment& environment,
+            uint32_t frameIndex,
+            const vk::DescriptorBufferInfo& sceneBuffer,
+            const vk::DescriptorBufferInfo& environmentBuffer
         );
     };
 }

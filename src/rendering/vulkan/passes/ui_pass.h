@@ -26,7 +26,7 @@ namespace tr::Rendering::Vulkan {
         void recreate(const Swapchain& swapchain);
         void beginFrame();
         void draw(
-            const vk::raii::CommandBuffer& commands,
+            const vk::raii::CommandBuffer& commandBuffer,
             vk::ImageView target,
             vk::Extent2D extent,
             ImDrawData* drawData

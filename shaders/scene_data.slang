@@ -1,4 +1,4 @@
-module Data;
+module Scene;
 
 public struct SceneData {
     public float4x4 view;

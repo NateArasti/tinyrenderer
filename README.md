@@ -87,14 +87,13 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] Imported scene lights
   - [ ] Animations
   - [ ] Cascaded shadow maps
-  - [ ] HDR
   - [ ] GPU Skinning
   - [ ] GPU-driven rendering
   - [ ] OIT
   - [ ] Ray Tracing
 - **Post-processing**
-  - [ ] SSAO
-  - [ ] Tonemapping
+  - [ ] Ambient Occlusion
+  - [ ] HDR and Tonemapping
   - [ ] Color grading
   - [ ] Vignette
   - [ ] Film grain

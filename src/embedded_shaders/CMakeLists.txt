@@ -32,13 +32,32 @@ function(add_embedded_shader_code shader_name class_name header_file)
     set(EMBEDDED_SHADER_CODE_FILES ${EMBEDDED_SHADER_CODE_FILES} "${code_file}" PARENT_SCOPE)
 endfunction()
 
-add_embedded_shader_code(pbr Pbr pbr.h "${SHADER_SOURCE_DIR}/light.slang")
+add_embedded_shader_code(pbr Pbr pbr.h 
+    "${SHADER_SOURCE_DIR}/light.slang"
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/scene_data.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
 add_embedded_shader_code(shadow Shadow shadow.h)
-add_embedded_shader_code(skybox Skybox skybox.h)
+add_embedded_shader_code(skybox Skybox skybox.h 
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/scene_data.slang"
+)
 add_embedded_shader_code(
     equirectangular_conversion
     EquirectangularConversion
-    equirectangular_conversion.h
+    equirectangular_conversion.h 
+
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(
+    irradiance_convolution
+    IrradianceConvolution
+    irradiance_convolution.h
+    
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
 )
 
 add_library(embedded_shaders STATIC
@@ -50,6 +69,8 @@ add_library(embedded_shaders STATIC
     skybox.cpp
     equirectangular_conversion.h
     equirectangular_conversion.cpp
+    irradiance_convolution.h
+    irradiance_convolution.cpp
     ${EMBEDDED_SHADER_CODE_FILES}
 )
 

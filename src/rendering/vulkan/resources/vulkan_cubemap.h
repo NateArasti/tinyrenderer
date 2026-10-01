@@ -10,7 +10,8 @@
 namespace tr::Rendering::Vulkan {
     struct VulkanCubemap {
         tr::Resources::Handle<tr::Data::Cubemap> handle;
-        GPUImage image;
+        GPUImage skybox;
+        GPUImage irradiance;
         vk::raii::Sampler sampler = nullptr;
     };
 }
