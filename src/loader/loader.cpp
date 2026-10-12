@@ -21,35 +21,40 @@
 namespace tr::Loading {
     namespace {
         using namespace tr::Data;
-        using namespace tr::Resources;
+        using tr::Rendering::RenderingResources;
 
         struct UploadedMesh {
             Handle<Mesh> handle;
             MeshBounds bounds;
         };
 
-        Handle<Material> createSphereMaterial(Scene& scene, LoadContext ctx, float metallic, float roughness) {
-            auto material = std::make_unique<Material>();
-            material->name = "sphere_m" + std::to_string(metallic) + "_r" + std::to_string(roughness);
-            material->set("diffuseColor", glm::vec4(0.5f, 0.0f, 0.0f, 1.0f));
-            material->set("metallicFactor", metallic);
-            material->set("roughnessFactor", roughness);
-            auto handle = scene.materials.add(std::move(material));
-            ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
+        Handle<Material> createSphereMaterial(
+            Scene& scene,
+            RenderingResources& resources,
+            float metallic,
+            float roughness
+        ) {
+            Material material;
+            material.name = "sphere_m" + std::to_string(metallic) + "_r" + std::to_string(roughness);
+            material.set("diffuseColor", glm::vec4(0.5f, 0.0f, 0.0f, 1.0f));
+            material.set("metallicFactor", metallic);
+            material.set("roughnessFactor", roughness);
+            const auto handle = resources.uploadMaterial(material);
+            scene.own(handle);
             return handle;
         }
 
-        Handle<Material> createPlaneMaterial(Scene& scene, LoadContext ctx) {
-            auto material = std::make_unique<Material>();
-            material->name = "floor";
-            material->set("diffuseColor", glm::vec4(0.25f, 0.25f, 0.25f, 1.0f));
-            material->set("metallicFactor", 0.0f).set("roughnessFactor", 1.0f);
-            auto handle = scene.materials.add(std::move(material));
-            ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
+        Handle<Material> createPlaneMaterial(Scene& scene, RenderingResources& resources) {
+            Material material;
+            material.name = "floor";
+            material.set("diffuseColor", glm::vec4(0.25f, 0.25f, 0.25f, 1.0f));
+            material.set("metallicFactor", 0.0f).set("roughnessFactor", 1.0f);
+            const auto handle = resources.uploadMaterial(material);
+            scene.own(handle);
             return handle;
         }
 
-        UploadedMesh createSphereMesh(Scene& scene, LoadContext ctx) {
+        UploadedMesh createSphereMesh(Scene& scene, RenderingResources& resources) {
             constexpr uint32_t segments = 64;
             constexpr uint32_t rings = 32;
             Mesh mesh;
@@ -85,10 +90,12 @@ namespace tr::Loading {
             }
             mesh.subMeshData.push_back(static_cast<uint32_t>(mesh.indices.size()));
             const auto bounds = scene.registerMesh(mesh);
-            return { ctx.resources.createMesh(mesh), bounds };
+            const auto handle = resources.uploadMesh(mesh);
+            scene.own(handle);
+            return { handle, bounds };
         }
 
-        UploadedMesh createPlaneMesh(Scene& scene, LoadContext ctx) {
+        UploadedMesh createPlaneMesh(Scene& scene, RenderingResources& resources) {
             Mesh mesh;
             mesh.vertices = {
                 {{-0.5f, 0, -0.5f}, {0, 1, 0}, {0, 0}},
@@ -100,27 +107,27 @@ namespace tr::Loading {
             mesh.subMeshData.push_back(6);
 
             const auto bounds = scene.registerMesh(mesh);
-            return { ctx.resources.createMesh(mesh), bounds };
+            const auto handle = resources.uploadMesh(mesh);
+            scene.own(handle);
+            return { handle, bounds };
         }
     }
 
-    std::unique_ptr<Data::Scene> Loader::loadDefaultScene(LoadContext ctx) {
-        auto scene = std::make_unique<Scene>();
-
+    void Loader::loadDefaultScene(Scene& scene, Rendering::RenderingResources& resources) {
         constexpr uint32_t gridSize = 7;
         constexpr float spacing = 2.5f;
         constexpr float radius = 1.0f;
         constexpr float halfSpan = (gridSize - 1) * spacing * 0.5f;
-        const auto floorMaterial = createPlaneMaterial(*scene, ctx);
-        const auto sphereMesh = createSphereMesh(*scene, ctx);
-        const auto planeMesh = createPlaneMesh(*scene, ctx);
+        const auto floorMaterial = createPlaneMaterial(scene, resources);
+        const auto sphereMesh = createSphereMesh(scene, resources);
+        const auto planeMesh = createPlaneMesh(scene, resources);
 
         for (uint32_t y = 0; y < gridSize; ++y) {
             for (uint32_t x = 0; x < gridSize; ++x) {
                 auto sphere = std::make_unique<Data::GameObject>();
                 sphere->mesh = sphereMesh.handle;
                 sphere->materials.push_back(createSphereMaterial(
-                    *scene, ctx,
+                    scene, resources,
                     static_cast<float>(x) / (gridSize - 1),
                     static_cast<float>(y) / (gridSize - 1)
                 ));
@@ -128,8 +135,8 @@ namespace tr::Loading {
                     x * spacing - halfSpan, radius, y * spacing - halfSpan
                 );
                 sphere->transform.scale = glm::vec3(radius);
-                scene->includeBounds(sphereMesh.bounds, sphere->transform.getMatrix());
-                scene->getObjects().push_back(std::move(sphere));
+                scene.includeBounds(sphereMesh.bounds, sphere->transform.getMatrix());
+                scene.getObjects().push_back(std::move(sphere));
             }
         }
 
@@ -137,14 +144,13 @@ namespace tr::Loading {
         plane->mesh = planeMesh.handle;
         plane->materials.push_back(floorMaterial);
         plane->transform.scale = glm::vec3(gridSize * spacing + 2.0f);
-        scene->includeBounds(planeMesh.bounds, plane->transform.getMatrix());
-        scene->getObjects().push_back(std::move(plane));
-
-        return scene;
+        scene.includeBounds(planeMesh.bounds, plane->transform.getMatrix());
+        scene.getObjects().push_back(std::move(plane));
     }
 
-    std::unique_ptr<Data::Scene> Loader::loadModel(
-        LoadContext ctx,
+    void Loader::loadModel(
+        Data::Scene& scene,
+        Rendering::RenderingResources& resources,
         const std::filesystem::path& path
     ) {
         std::vector<std::unique_ptr<Importer>> importers;
@@ -152,17 +158,14 @@ namespace tr::Loading {
         importers.push_back(std::make_unique<GLTFImporter>());
         importers.push_back(std::make_unique<FBXImporter>());
 
-        auto scene = std::make_unique<Scene>();
         for (const auto& importer : importers) {
-            importer->load(*scene, ctx, path);
+            importer->load(scene, resources, path);
         }
 
-        if (scene->getObjects().empty()) {
+        if (scene.getObjects().empty()) {
             throw ImportError(
                 "The file contains no renderable meshes or its format is unsupported."
             );
         }
-
-        return scene;
     }
 }

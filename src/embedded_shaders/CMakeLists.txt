@@ -35,13 +35,13 @@ endfunction()
 add_embedded_shader_code(pbr Pbr pbr.h 
     "${SHADER_SOURCE_DIR}/light.slang"
     "${SHADER_SOURCE_DIR}/environment.slang"
-    "${SHADER_SOURCE_DIR}/scene_data.slang"
+    "${SHADER_SOURCE_DIR}/camera_data.slang"
     "${SHADER_SOURCE_DIR}/math.slang"
 )
 add_embedded_shader_code(shadow Shadow shadow.h)
 add_embedded_shader_code(skybox Skybox skybox.h 
     "${SHADER_SOURCE_DIR}/environment.slang"
-    "${SHADER_SOURCE_DIR}/scene_data.slang"
+    "${SHADER_SOURCE_DIR}/camera_data.slang"
 )
 add_embedded_shader_code(
     equirectangular_conversion

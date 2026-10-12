@@ -3,9 +3,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "handle.h"
 #include "shader.h"
-#include "texture.h"
 
 namespace tr::Data {
     struct Material {

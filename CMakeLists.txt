@@ -26,7 +26,6 @@ endif()
 add_subdirectory(third-party/ufbx)
 
 add_subdirectory(src/app)
-add_subdirectory(src/resources)
 add_subdirectory(src/data)
 add_subdirectory(src/embedded_shaders)
 add_subdirectory(src/rendering)
@@ -37,7 +36,6 @@ add_subdirectory(src/loader)
 target_link_libraries(tinyrenderer 
     PRIVATE 
         app
-        resources
         data
         embedded_shaders
         rendering

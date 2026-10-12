@@ -13,7 +13,7 @@ namespace tr::Loading {
 
         virtual void load(
             tr::Data::Scene& scene,
-            LoadContext& context,
+            tr::Rendering::RenderingResources& resources,
             const std::filesystem::path& path
         ) const = 0;
     };

@@ -33,7 +33,6 @@
 namespace tr::Loading {
     namespace {
         using namespace tr::Data;
-        using namespace tr::Resources;
 
         struct SceneDeleter {
             void operator()(ufbx_scene* scene) const {
@@ -113,7 +112,8 @@ namespace tr::Loading {
         }
 
         Handle<Texture> loadTexture(
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
+            Scene& scene,
             const std::filesystem::path& modelDirectory,
             const ufbx_texture* sourceTexture,
             TextureColorSpace colorSpace,
@@ -209,7 +209,8 @@ namespace tr::Loading {
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const auto handle = context.resources.createTexture(texture);
+            const auto handle = resources.uploadTexture(texture);
+            scene.own(handle);
             cache.emplace(cacheKey, handle);
             return handle;
         }
@@ -222,22 +223,22 @@ namespace tr::Loading {
             return map.has_value ? toGlm(map.value_vec3) : fallback;
         }
 
-        Handle<Material> createDefaultMaterial(Scene& scene, LoadContext& context) {
-            auto material = std::make_unique<Material>();
-            material->name = "default";
-            material->set("diffuseColor", glm::vec4(1.0f));
-            material->set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
-            material->set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
-            material->set("metallicFactor", 0.0f);
-            material->set("roughnessFactor", 1.0f);
-            const auto handle = scene.materials.add(std::move(material));
-            context.resources.registerMaterial(handle, *scene.materials.get(handle));
+        Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
+            Material material;
+            material.name = "default";
+            material.set("diffuseColor", glm::vec4(1.0f));
+            material.set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
+            material.set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
+            material.set("metallicFactor", 0.0f);
+            material.set("roughnessFactor", 1.0f);
+            const auto handle = resources.uploadMaterial(material);
+            scene.own(handle);
             return handle;
         }
 
         std::unordered_map<const ufbx_material*, Handle<Material>> createMaterials(
             Scene& scene,
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
             const std::filesystem::path& modelDirectory,
             const ufbx_scene& sourceScene
         ) {
@@ -250,9 +251,9 @@ namespace tr::Loading {
                 const bool transparent =
                     opacity < 0.999f
                     || (pbr.opacity.texture && pbr.opacity.texture_enabled);
-                auto material = std::make_unique<Material>();
-                material->blendMode = transparent ? BlendMode::Transparent : BlendMode::Opaque;
-                material->name = toString(source->name);
+                Material material;
+                material.blendMode = transparent ? BlendMode::Transparent : BlendMode::Opaque;
+                material.name = toString(source->name);
 
                 const glm::vec3 baseColor =
                     mapVec3(pbr.base_color, glm::vec3(1.0f))
@@ -260,22 +261,22 @@ namespace tr::Loading {
                 const glm::vec3 emission =
                     mapVec3(pbr.emission_color, glm::vec3(0.0f))
                     * mapReal(pbr.emission_factor, 1.0f);
-                material->set("diffuseColor", glm::vec4(baseColor, opacity));
-                material->set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
-                material->set(
+                material.set("diffuseColor", glm::vec4(baseColor, opacity));
+                material.set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
+                material.set(
                     "specularColor",
                     glm::vec4(mapVec3(pbr.specular_color, glm::vec3(0.04f)), 1.0f)
                 );
-                material->set("emissionColor", glm::vec4(emission, 1.0f));
-                material->set(
+                material.set("emissionColor", glm::vec4(emission, 1.0f));
+                material.set(
                     "metallicFactor",
                     std::clamp(mapReal(pbr.metalness, 0.0f), 0.0f, 1.0f)
                 );
-                material->set(
+                material.set(
                     "roughnessFactor",
                     std::clamp(mapReal(pbr.roughness, 1.0f), 0.04f, 1.0f)
                 );
-                material->set(
+                material.set(
                     "normalScale",
                     mapReal(source->fbx.bump_factor, 1.0f)
                 );
@@ -290,15 +291,16 @@ namespace tr::Loading {
                         return;
                     }
                     const auto texture = loadTexture(
-                        context,
+                        resources,
+                        scene,
                         modelDirectory,
                         map.texture,
                         colorSpace,
                         textureCache
                     );
                     if (texture.isValid()) {
-                        material->set(std::string(mapParam), texture);
-                        material->set(std::string(flagParam), 1.0f);
+                        material.set(std::string(mapParam), texture);
+                        material.set(std::string(flagParam), 1.0f);
                     }
                 };
 
@@ -345,8 +347,8 @@ namespace tr::Loading {
                     TextureColorSpace::Linear
                 );
 
-                const auto handle = scene.materials.add(std::move(material));
-                context.resources.registerMaterial(handle, *scene.materials.get(handle));
+                const auto handle = resources.uploadMaterial(material);
+                scene.own(handle);
                 result.emplace(source, handle);
             }
             return result;
@@ -360,7 +362,7 @@ namespace tr::Loading {
 
         ImportedMesh createMesh(
             Scene& scene,
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
             const ufbx_mesh& source
         ) {
             if (source.num_triangles == 0 || !source.vertex_position.exists) {
@@ -479,9 +481,11 @@ namespace tr::Loading {
             mesh.vertices = std::move(flatVertices);
             convertToLeftHanded(mesh);
             const auto bounds = scene.registerMesh(mesh);
+            const auto meshHandle = resources.uploadMesh(mesh);
+            scene.own(meshHandle);
 
             return {
-                context.resources.createMesh(mesh),
+                meshHandle,
                 std::move(materialSlots),
                 bounds
             };
@@ -489,7 +493,7 @@ namespace tr::Loading {
 
         void loadFbx(
             Scene& scene,
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
             const std::filesystem::path& path
         ) {
             ufbx_load_opts options{};
@@ -523,15 +527,15 @@ namespace tr::Loading {
 
             const auto materials = createMaterials(
                 scene,
-                context,
+                resources,
                 path.parent_path(),
                 *sourceScene
             );
-            const auto defaultMaterial = createDefaultMaterial(scene, context);
+            const auto defaultMaterial = createDefaultMaterial(scene, resources);
             std::unordered_map<const ufbx_mesh*, ImportedMesh> meshes;
             meshes.reserve(sourceScene->meshes.count);
             for (const ufbx_mesh* sourceMesh : sourceScene->meshes) {
-                meshes.emplace(sourceMesh, createMesh(scene, context, *sourceMesh));
+                meshes.emplace(sourceMesh, createMesh(scene, resources, *sourceMesh));
             }
             for (const ufbx_node* node : sourceScene->nodes) {
                 if (!node->mesh) {
@@ -572,11 +576,11 @@ namespace tr::Loading {
 
     void FBXImporter::load(
         Scene& scene,
-        LoadContext& context,
+        Rendering::RenderingResources& resources,
         const std::filesystem::path& path
     ) const {
         if (equalsIgnoreCase(path.extension().string(), ".fbx")) {
-            loadFbx(scene, context, path);
+            loadFbx(scene, resources, path);
         }
     }
 }

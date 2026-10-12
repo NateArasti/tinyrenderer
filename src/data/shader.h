@@ -18,7 +18,7 @@ namespace tr::Data {
         glm::vec2,
         glm::vec3,
         glm::vec4,
-        Resources::Handle<Data::Texture>
+        Data::Handle<Data::Texture>
     >;
 
     struct ShaderParamDesc {
@@ -78,12 +78,12 @@ namespace tr::Data {
                 if constexpr (std::is_same_v<T, glm::vec2>) return { 8,  8 };
                 if constexpr (std::is_same_v<T, glm::vec3>) return { 12, 16 };
                 if constexpr (std::is_same_v<T, glm::vec4>) return { 16, 16 };
-                if constexpr (std::is_same_v<T, Resources::Handle<Data::Texture>>) return { 0, 0 };
+                if constexpr (std::is_same_v<T, Data::Handle<Data::Texture>>) return { 0, 0 };
             }, v);
         }
 
         inline bool isTextureParam(const ShaderParamValue& v) const {
-            return std::holds_alternative<Resources::Handle<Data::Texture>>(v);
+            return std::holds_alternative<Data::Handle<Data::Texture>>(v);
         }
     };
 }

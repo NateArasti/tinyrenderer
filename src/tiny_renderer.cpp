@@ -6,7 +6,6 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
-#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -29,7 +28,7 @@
 #include "loader.h"
 #include "ui_data.h"
 #include "ui_provider.h"
-#include "vulkan_renderer.h"
+#include "vulkan_rhi.h"
 #include "window.h"
 #include "cubemap_loader.h"
 
@@ -45,7 +44,7 @@ namespace tr {
     }
 
     struct TinyRenderer::Impl {
-        using SceneFactory = std::function<std::unique_ptr<Data::Scene>(Loading::LoadContext)>;
+        using SceneLoader = void (*)(Data::Scene&, Rendering::RenderingResources&);
 
         App::Application application{
             .name = APP_NAME,
@@ -55,8 +54,7 @@ namespace tr {
         App::Input input{ *application.window };
         UI::UIProvider uiProvider{ *application.window, input };
 
-        Data::EmbeddedShaders::Pbr baseShader;
-        std::unique_ptr<Rendering::Vulkan::VulkanRenderer> rhi;
+        std::unique_ptr<Rendering::RHI> rhi;
         std::unique_ptr<Rendering::Renderer> renderer;
         
         std::unique_ptr<Data::Scene> currentScene;
@@ -267,13 +265,9 @@ namespace tr {
         }
 
         void setupRendering() {
-            rhi = std::make_unique<Rendering::Vulkan::VulkanRenderer>(application);
-            rhi->resources().createBaseShaders(baseShader);
+            rhi = std::make_unique<Rendering::Vulkan::VulkanRHI>(application);
 
-            renderer = std::make_unique<Rendering::Renderer>(
-                *rhi,
-                *application.window
-            );
+            renderer = std::make_unique<Rendering::Renderer>(*rhi);
         }
 
         void setupCamera() {
@@ -326,11 +320,23 @@ namespace tr {
             }
         }
 
-        void loadScene(const SceneFactory& sceneFactory) {
-            renderer->clearState();
-            currentScene = sceneFactory(Loading::LoadContext{
-                .resources = renderer->getResources(),
-            });
+        void setScene(std::unique_ptr<Data::Scene> scene) {
+            if (currentScene) {
+                renderer->unloadSceneResources(*currentScene);
+            }
+            currentScene = std::move(scene);
+        }
+
+        void loadScene(SceneLoader load) {
+            auto scene = std::make_unique<Data::Scene>();
+            try {
+                load(*scene, renderer->getResources());
+            }
+            catch (...) {
+                renderer->unloadSceneResources(*scene);
+                throw;
+            }
+            setScene(std::move(scene));
         }
 
         void loadSkybox() {
@@ -356,7 +362,7 @@ namespace tr {
 
             try {
                 auto cubemap = tr::Loading::CubemapLoader::loadCubemap(path.value(), renderer->getResources());
-                environment.skyboxHandle = renderer->getResources().createCubemap(*cubemap);
+                environment.skyboxHandle = renderer->getResources().uploadCubemap(*cubemap);
             }
             catch (const Loading::ImportError& error) {
                 importError = error.what();
@@ -385,17 +391,15 @@ namespace tr {
             }
 
             fmt::println("Loading file {}", path->string());
-            renderer->clearState();
-            Loading::LoadContext context{
-                .resources = renderer->getResources()
-            };
+            auto scene = std::make_unique<Data::Scene>();
             try {
-                currentScene = Loading::Loader::loadModel(context, *path);
+                Loading::Loader::loadModel(*scene, renderer->getResources(), *path);
             }
             catch (const Loading::ImportError& error) {
+                renderer->unloadSceneResources(*scene);
                 importError = error.what();
                 fmt::println("Model import failed: {}", importError);
-                currentScene = Loading::Loader::loadDefaultScene(context);
+                loadScene(Loading::Loader::loadDefaultScene);
                 modelName = "Default Scene";
                 importErrorPopupPending = true;
                 showUI = true;
@@ -403,6 +407,7 @@ namespace tr {
                 return;
             }
 
+            setScene(std::move(scene));
             modelName = path->filename().string();
             syncSceneUI();
         }
@@ -484,7 +489,7 @@ namespace tr {
                 bool canReadInput = true;
                 ImDrawData* uiDrawData = nullptr;
                 if (showUI) {
-                    rhi->prepareUI();
+                    renderer->prepareUI();
                     UI::UIFrame uiFrame = uiProvider.update(uiState);
                     uiDrawData = uiFrame.drawData;
                     canReadInput = !uiFrame.wantsMouse && !uiFrame.wantsKeyboard;

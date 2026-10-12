@@ -13,7 +13,6 @@ target_link_libraries(loader
     PUBLIC
         app
         data
-        resources
         rendering
 )
 

@@ -33,7 +33,6 @@
 namespace tr::Loading {
     namespace {
         using namespace tr::Data;
-        using namespace tr::Resources;
 
         enum class TextureChannel : uint8_t {
             All,
@@ -86,7 +85,8 @@ namespace tr::Loading {
         }
 
         Handle<Texture> loadTexture(
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
+            Scene& scene,
             const fastgltf::Asset& asset,
             size_t textureIndex,
             TextureColorSpace colorSpace,
@@ -160,25 +160,26 @@ namespace tr::Loading {
                 }
             }
 
-            const auto handle = context.resources.createTexture(texture);
+            const auto handle = resources.uploadTexture(texture);
+            scene.own(handle);
             cache.emplace(cacheKey, handle);
             return handle;
         }
 
-        Handle<Material> createDefaultMaterial(Scene& scene, LoadContext& context) {
-            auto material = std::make_unique<Material>();
-            material->name = "default";
-            material->set("diffuseColor", glm::vec4(1.0f));
-            material->set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
-            material->set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
-            const auto handle = scene.materials.add(std::move(material));
-            context.resources.registerMaterial(handle, *scene.materials.get(handle));
+        Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
+            Material material;
+            material.name = "default";
+            material.set("diffuseColor", glm::vec4(1.0f));
+            material.set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
+            material.set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
+            const auto handle = resources.uploadMaterial(material);
+            scene.own(handle);
             return handle;
         }
 
         std::vector<Handle<Material>> createMaterials(
             Scene& scene,
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
             const fastgltf::Asset& asset
         ) {
             std::vector<Handle<Material>> result;
@@ -186,18 +187,18 @@ namespace tr::Loading {
             std::unordered_map<std::string, Handle<Texture>> textureCache;
 
             for (const auto& source : asset.materials) {
-                auto material = std::make_unique<Material>();
-                material->name = std::string(source.name);
-                material->blendMode = source.alphaMode == fastgltf::AlphaMode::Opaque
+                Material material;
+                material.name = std::string(source.name);
+                material.blendMode = source.alphaMode == fastgltf::AlphaMode::Opaque
                     ? BlendMode::Opaque : BlendMode::Transparent;
 
                 const auto& base = source.pbrData.baseColorFactor;
-                material->set("diffuseColor", glm::vec4(base[0], base[1], base[2], base[3]));
-                material->set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
-                material->set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
-                material->set("metallicFactor", static_cast<float>(source.pbrData.metallicFactor));
-                material->set("roughnessFactor", static_cast<float>(source.pbrData.roughnessFactor));
-                material->set(
+                material.set("diffuseColor", glm::vec4(base[0], base[1], base[2], base[3]));
+                material.set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
+                material.set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
+                material.set("metallicFactor", static_cast<float>(source.pbrData.metallicFactor));
+                material.set("roughnessFactor", static_cast<float>(source.pbrData.roughnessFactor));
+                material.set(
                     "emissionColor",
                     glm::vec4(
                         source.emissiveFactor[0] * source.emissiveStrength,
@@ -215,7 +216,8 @@ namespace tr::Loading {
                     TextureChannel channel = TextureChannel::All
                 ) {
                     const auto texture = loadTexture(
-                        context,
+                        resources,
+                        scene,
                         asset,
                         textureIndex,
                         colorSpace,
@@ -223,8 +225,8 @@ namespace tr::Loading {
                         textureCache
                     );
                     if (texture.isValid()) {
-                        material->set(std::string(mapParam), texture);
-                        material->set(std::string(flagParam), 1.0f);
+                        material.set(std::string(mapParam), texture);
+                        material.set(std::string(flagParam), 1.0f);
                     }
                 };
 
@@ -251,7 +253,7 @@ namespace tr::Loading {
                         "hasNormalMap",
                         TextureColorSpace::Linear
                     );
-                    material->set("normalScale", static_cast<float>(source.normalTexture->scale));
+                    material.set("normalScale", static_cast<float>(source.normalTexture->scale));
                 }
                 if (source.pbrData.metallicRoughnessTexture) {
                     const size_t textureIndex = source.pbrData.metallicRoughnessTexture->textureIndex;
@@ -271,8 +273,8 @@ namespace tr::Loading {
                     );
                 }
 
-                const auto handle = scene.materials.add(std::move(material));
-                context.resources.registerMaterial(handle, *scene.materials.get(handle));
+                const auto handle = resources.uploadMaterial(material);
+                scene.own(handle);
                 result.push_back(handle);
             }
             return result;
@@ -369,7 +371,7 @@ namespace tr::Loading {
 
         ImportedMesh createMesh(
             Scene& scene,
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
             const fastgltf::Asset& asset,
             const fastgltf::Mesh& sourceMesh,
             const std::vector<Handle<Material>>& materials,
@@ -529,9 +531,11 @@ namespace tr::Loading {
                 return {};
             }
             convertToLeftHanded(mesh);
+            const auto handle = resources.uploadMesh(mesh);
             const auto bounds = scene.registerMesh(mesh);
+            scene.own(handle);
             return {
-                context.resources.createMesh(mesh),
+                handle,
                 std::move(meshMaterials),
                 bounds
             };
@@ -539,7 +543,7 @@ namespace tr::Loading {
 
         void loadGltf(
             Scene& scene,
-            LoadContext& context,
+            Rendering::RenderingResources& resources,
             const std::filesystem::path& path
         ) {
             auto data = fastgltf::GltfDataBuffer::FromPath(path);
@@ -567,13 +571,13 @@ namespace tr::Loading {
             }
 
             auto asset = std::move(loaded.get());
-            const auto materials = createMaterials(scene, context, asset);
-            const auto defaultMaterial = createDefaultMaterial(scene, context);
+            const auto materials = createMaterials(scene, resources, asset);
+            const auto defaultMaterial = createDefaultMaterial(scene, resources);
             std::vector<ImportedMesh> meshes(asset.meshes.size());
             for (size_t meshIndex = 0; meshIndex < asset.meshes.size(); ++meshIndex) {
                 meshes[meshIndex] = createMesh(
                     scene,
-                    context,
+                    resources,
                     asset,
                     asset.meshes[meshIndex],
                     materials,
@@ -637,12 +641,12 @@ namespace tr::Loading {
 
     void GLTFImporter::load(
         Scene& scene,
-        LoadContext& context,
+        Rendering::RenderingResources& resources,
         const std::filesystem::path& path
     ) const {
         const std::string extension = path.extension().string();
         if (equalsIgnoreCase(extension, ".gltf") || equalsIgnoreCase(extension, ".glb")) {
-            loadGltf(scene, context, path);
+            loadGltf(scene, resources, path);
         }
     }
 }

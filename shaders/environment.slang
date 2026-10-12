@@ -7,7 +7,12 @@ public struct EnvironmentData {
     public float rotation;
     public float3 tint;
     public float exposure;
-    float3 _pad;
+
+    public float3 lightDirection;
+    public float lightIntensity;
+    public float4 lightColor;
+    public float4x4 lightViewProj;
+
     public float hasSkybox;
 };
 

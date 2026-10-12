@@ -32,7 +32,6 @@
 namespace tr::Loading {
     namespace {
         using namespace tr::Data;
-        using namespace tr::Resources;
 
         struct VertexKey {
             int position;
@@ -71,7 +70,8 @@ namespace tr::Loading {
         }
 
         Handle<Texture> loadTexture(
-            LoadContext ctx,
+            Rendering::RenderingResources& resources,
+            Scene& scene,
             const std::filesystem::path& modelDirectory,
             std::string_view textureName,
             TextureColorSpace colorSpace,
@@ -149,23 +149,24 @@ namespace tr::Loading {
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const Handle<Texture> handle = ctx.resources.createTexture(texture);
+            const auto handle = resources.uploadTexture(texture);
+            scene.own(handle);
             cache.emplace(std::move(cacheKey), handle);
             return handle;
         }
 
-        Handle<Material> createDefaultMaterial(Scene& scene, LoadContext ctx) {
-            auto material = std::make_unique<Material>();
-            material->name = "default";
-            material->set("diffuseColor", glm::vec4(1.0f));
-            auto handle = scene.materials.add(std::move(material));
-            ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
+        Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
+            Material material;
+            material.name = "default";
+            material.set("diffuseColor", glm::vec4(1.0f));
+            const auto handle = resources.uploadMaterial(material);
+            scene.own(handle);
             return handle;
         }
 
         std::vector<Handle<Material>> createMaterials(
             Scene& scene,
-            LoadContext& ctx,
+            Rendering::RenderingResources& resources,
             const std::filesystem::path& modelDirectory,
             const rapidobj::Materials& sourceMaterials
         ) {
@@ -175,9 +176,9 @@ namespace tr::Loading {
 
             for (const auto& source : sourceMaterials) {
                 const bool transparent = source.dissolve < 1.0f || !source.alpha_texname.empty();
-                auto material = std::make_unique<Material>();
-                material->blendMode = transparent ? BlendMode::Transparent : BlendMode::Opaque;
-                material->name = source.name;
+                Material material;
+                material.blendMode = transparent ? BlendMode::Transparent : BlendMode::Opaque;
+                material.name = source.name;
 
                 const auto loadMap = [&](
                     std::string_view textureName,
@@ -186,15 +187,16 @@ namespace tr::Loading {
                     TextureColorSpace colorSpace
                 ) {
                     const auto texture = loadTexture(
-                        ctx,
+                        resources,
+                        scene,
                         modelDirectory,
                         textureName,
                         colorSpace,
                         textureCache
                     );
                     if (texture.isValid()) {
-                        material->set(std::string(mapParam), texture);
-                        material->set(std::string(flagParam), 1.0f);
+                        material.set(std::string(mapParam), texture);
+                        material.set(std::string(flagParam), 1.0f);
                     }
                     return texture.isValid();
                 };
@@ -251,11 +253,11 @@ namespace tr::Loading {
                 const glm::vec3 diffuse = hasDiffuseMap && !hasDiffuseColor
                     ? glm::vec3(1.0f)
                     : glm::vec3(source.diffuse[0], source.diffuse[1], source.diffuse[2]);
-                material->set(
+                material.set(
                     "diffuseColor",
                     glm::vec4(diffuse, source.dissolve)
                 );
-                material->set(
+                material.set(
                     "ambientColor",
                     glm::vec4(source.ambient[0], source.ambient[1], source.ambient[2], 1.0f)
                 );
@@ -266,7 +268,7 @@ namespace tr::Loading {
                 const glm::vec3 emission = hasEmissionMap && !hasEmissionColor
                     ? glm::vec3(1.0f)
                     : glm::vec3(source.emission[0], source.emission[1], source.emission[2]);
-                material->set("emissionColor", glm::vec4(emission, 1.0f));
+                material.set("emissionColor", glm::vec4(emission, 1.0f));
 
                 const bool hasSpecularColor = source.specular[0] != 0.0f
                     || source.specular[1] != 0.0f
@@ -274,16 +276,16 @@ namespace tr::Loading {
                 const glm::vec3 specular = hasSpecularColor
                     ? glm::vec3(source.specular[0], source.specular[1], source.specular[2])
                     : glm::vec3(0.04f);
-                material->set("specularColor", glm::vec4(specular, 1.0f));
-                material->set("metallicFactor", std::clamp(source.metallic, 0.0f, 1.0f));
-                material->set("normalScale", source.bump_texopt.bump_multiplier);
+                material.set("specularColor", glm::vec4(specular, 1.0f));
+                material.set("metallicFactor", std::clamp(source.metallic, 0.0f, 1.0f));
+                material.set("normalScale", source.bump_texopt.bump_multiplier);
 
                 const float legacyRoughness = std::sqrt(2.0f / (std::max(source.shininess, 0.0f) + 2.0f));
                 const float roughness = source.roughness > 0.0f ? source.roughness : legacyRoughness;
-                material->set("roughnessFactor", std::clamp(roughness, 0.04f, 1.0f));
+                material.set("roughnessFactor", std::clamp(roughness, 0.04f, 1.0f));
 
-                auto handle = scene.materials.add(std::move(material));
-                ctx.resources.registerMaterial(handle, *scene.materials.get(handle));
+                const auto handle = resources.uploadMaterial(material);
+                scene.own(handle);
                 materials.push_back(handle);
             }
             return materials;
@@ -338,7 +340,7 @@ namespace tr::Loading {
 
         void createMesh(
             Scene& scene,
-            LoadContext& ctx,
+            Rendering::RenderingResources& resources,
             const rapidobj::Attributes& attributes,
             const rapidobj::Shape& shape,
             const std::vector<Handle<Material>>& materials,
@@ -417,13 +419,15 @@ namespace tr::Loading {
 
             const auto bounds = scene.registerMesh(mesh);
             scene.includeBounds(bounds);
-            object->mesh = ctx.resources.createMesh(mesh);
+            const auto handle = resources.uploadMesh(mesh);
+            scene.own(handle);
+            object->mesh = handle;
             scene.getObjects().push_back(std::move(object));
         }
 
         void loadObj(
             Scene& scene,
-            LoadContext& ctx,
+            Rendering::RenderingResources& resources,
             const std::filesystem::path& path
         ) {
             rapidobj::Result result = rapidobj::ParseFile(path);
@@ -443,12 +447,12 @@ namespace tr::Loading {
                 ));
             }
 
-            const auto materials = createMaterials(scene, ctx, path.parent_path(), result.materials);
-            const auto defaultMaterial = createDefaultMaterial(scene, ctx);
+            const auto materials = createMaterials(scene, resources, path.parent_path(), result.materials);
+            const auto defaultMaterial = createDefaultMaterial(scene, resources);
             for (const auto& shape : result.shapes) {
                 createMesh(
                     scene,
-                    ctx,
+                    resources,
                     result.attributes,
                     shape,
                     materials,
@@ -460,11 +464,11 @@ namespace tr::Loading {
 
     void OBJImporter::load(
         Scene& scene,
-        LoadContext& context,
+        Rendering::RenderingResources& resources,
         const std::filesystem::path& path
     ) const {
         if (equalsIgnoreCase(path.extension().string(), ".obj")) {
-            loadObj(scene, context, path);
+            loadObj(scene, resources, path);
         }
     }
 }

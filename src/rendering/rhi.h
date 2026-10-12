@@ -1,15 +1,12 @@
 #pragma once
 
-#include <span>
 #include <vector>
+#include <optional>
+#include <string>
 
-#include <imgui.h>
-
-#include "draw_commands.h"
+#include "frame_context.h"
 #include "rendering_resources.h"
-#include "shader.h"
-#include "scene_data.h"
-#include "environment.h"
+#include "ui_renderer.h"
 
 namespace tr::Rendering {
     class RHI {
@@ -27,15 +24,14 @@ namespace tr::Rendering {
         virtual uint32_t getMsaaSamples() const = 0;
         virtual std::vector<uint32_t> getSupportedMsaaSamples() const = 0;
         virtual void setMsaaSamples(uint32_t samples) = 0;
+        virtual float getProjectionYSign() const = 0;
+        virtual Format getDepthFormat() const = 0;
+        virtual void waitIdle() = 0;
 
         virtual RenderingResources& resources() = 0;
+        virtual UIRenderer& uiRenderer() = 0;
 
-        virtual void startFrame(const tr::Rendering::SceneData& sceneData) = 0;
-        virtual void renderSkybox(const tr::Data::Environment& environment) = 0;
-        virtual void renderShadowPass(std::span<const DrawCommand> commands) = 0;
-        virtual void renderColorPass(std::span<const DrawCommand> commands) = 0;
-        virtual void prepareUI() = 0;
-        virtual void drawUI(ImDrawData* drawData) = 0;
+        virtual std::optional<FrameContext> startFrame() = 0;
         virtual void endFrame() = 0;
     };
 }

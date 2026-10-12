@@ -7,7 +7,7 @@ namespace tr::Loading {
     public:
         void load(
             tr::Data::Scene& scene,
-            LoadContext& context,
+            tr::Rendering::RenderingResources& resources,
             const std::filesystem::path& path
         ) const override;
     };

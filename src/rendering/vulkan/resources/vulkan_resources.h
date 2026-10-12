@@ -1,86 +1,99 @@
 #pragma once
 
+#include <array>
 #include <unordered_map>
 
-#define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
-#include <vulkan/vulkan_raii.hpp>
-
-#include "resource_factory.h"
 #include "rendering_resources.h"
-#include "vulkan_material.h"
-#include "vulkan_mesh.h"
-#include "vulkan_shader.h"
-#include "vulkan_texture.h"
-
-#include "cubemap.h"
-#include "resources/vulkan_cubemap.h"
-#include "resources/cubemap_converter.h"
+#include "vulkan_allocator.h"
+#include "vulkan_descriptor_allocator.h"
+#include "cubemap_converter.h"
+#include "defines.h"
+#include "../vulkan_rendering_structs.h"
 
 namespace tr::Rendering::Vulkan {
-    class VulkanResources : public tr::Rendering::RenderingResources {
+    class VulkanResources : public RenderingResources {
     private:
-        static constexpr uint32_t MAX_MATERIALS = 4096;
-        static constexpr uint32_t MAX_TEXTURES_PER_MATERIAL = 8;
-
         VulkanContext& _context;
-        ResourceFactory& _factory;
-
+        VulkanAllocator& _allocator;
         CubemapConverter _cubemapConverter;
+        VulkanDescriptorAllocator _descriptorAllocator;
 
-        const vk::raii::DescriptorSetLayout& _sceneDescriptorSetLayout;
-        const vk::raii::DescriptorSetLayout& _environmentDescriptorSetLayout;
-        vk::Format _colorFormat;
+        uint32_t _nextHandle = 0;
+        uint32_t _frameSlot = 0;
 
-        vk::raii::DescriptorPool _materialDescriptorPool = nullptr;
-        uint32_t _generation = 0;
-        uint32_t _cubemapIndex = 0;
-        uint32_t _textureIndex = 0;
-        uint32_t _meshIndex = 0;
+        Handle<GPUTexture> _fallbackTexture;
+        GPUCubemap _fallbackCubemap;
 
-        VulkanShader _opaqueShader;
-        VulkanShader _transparentShader;
-        VulkanTexture _fallbackTexture;
-        VulkanCubemap _fallbackCubemap;
-        std::unordered_map<tr::Resources::Handle<tr::Data::Cubemap>, VulkanCubemap> _cubemaps;
-        std::unordered_map<tr::Resources::Handle<tr::Data::Texture>, VulkanTexture> _textures;
-        std::unordered_map<tr::Resources::Handle<tr::Data::Mesh>, VulkanMesh> _meshes;
-        std::unordered_map<tr::Resources::Handle<tr::Data::Material>, VulkanMaterial> _materials;
+        std::unordered_map<uint32_t, VulkanBuffer> _buffers;
+        std::unordered_map<uint32_t, VulkanTexture> _textures;
+        std::unordered_map<uint32_t, VulkanBindingLayout> _bindingLayouts;
+        std::unordered_map<uint32_t, VulkanBindingSet> _bindingSets;
+        std::unordered_map<uint32_t, VulkanPipelineLayout> _pipelineLayouts;
+        std::unordered_map<uint32_t, VulkanPipeline> _pipelines;
+        
+        std::unordered_map<uint32_t, GPUMesh> _meshes;
+        std::unordered_map<uint32_t, Material> _materials;
+        std::unordered_map<uint32_t, Handle<GPUTexture>> _assetTextures;
+        std::unordered_map<uint32_t, GPUCubemap> _cubemaps;
+        std::array<std::vector<VulkanTexture>, MAX_FRAMES_IN_FLIGHT> _retiredTextures;
 
-        void createDescriptorPool();
-        void createFallbackTexture();
-        void createFallbackCubemap();
-        VulkanShader createShader(const tr::Data::Shader& shader, tr::Data::BlendMode blendMode);
-
-    public:
-        VulkanResources(
-            VulkanContext& context,
-            ResourceFactory& factory,
-            const vk::raii::DescriptorSetLayout& sceneDescriptorSetLayout,
-            const vk::raii::DescriptorSetLayout& environmentDescriptorSetLayout,
-            vk::Format colorFormat
+        void createFallbackTextures();
+        Handle<GPUTexture> storeTexture(
+            std::string_view name,
+            VulkanImage image,
+            bool repeat,
+            bool comparison = false
         );
 
-        VulkanResources(const VulkanResources&) = delete;
-        VulkanResources& operator=(const VulkanResources&) = delete;
-        VulkanResources(VulkanResources&&) = delete;
-        VulkanResources& operator=(VulkanResources&&) = delete;
+    public:
+        VulkanResources(VulkanContext& context, VulkanAllocator& allocator);
+        ~VulkanResources() override;
 
-        void clear() override;
-        void createBaseShaders(tr::Data::Shader& shader) override;
-        void recreateBaseShaders(vk::Format colorFormat);
-        tr::Resources::Handle<tr::Data::Texture> createTexture(const tr::Data::Texture& texture) override;
-        tr::Resources::Handle<tr::Data::Mesh> createMesh(const tr::Data::Mesh& mesh) override;
-        void registerMaterial(
-            tr::Resources::Handle<tr::Data::Material> handle,
-            const tr::Data::Material& material
-        ) override;
-        
-        tr::Resources::Handle<tr::Data::Cubemap> createCubemap(const tr::Data::Cubemap& cubemap) override;
-        void destroyCubemap(Resources::Handle<Data::Cubemap> handle) override;
+        void beginFrame(uint32_t slot);
+        Handle<GPUTexture> importTexture(std::string_view name, vk::Image image, vk::ImageView view);
+        void forgetTexture(Handle<GPUTexture> handle);
 
-        const VulkanMesh& mesh(tr::Resources::Handle<tr::Data::Mesh> handle) const;
-        const VulkanMaterial& material(tr::Resources::Handle<tr::Data::Material> handle) const;
-        const VulkanCubemap* cubemap(Resources::Handle<Data::Cubemap> handle) const;
-        const VulkanCubemap* fallbackCubemap() const { return &_fallbackCubemap; };
+        const VulkanTexture& texture(Handle<GPUTexture> handle) const;
+        const VulkanBuffer& buffer(Handle<GPUBuffer> handle) const;
+        const VulkanPipeline& pipeline(Handle<Pipeline> handle) const;
+        vk::PipelineLayout pipelineLayout(Handle<PipelineLayout> handle) const;
+        vk::DescriptorSet bindingSet(Handle<BindingSet> handle) const;
+
+        const GPUMesh& mesh(Handle<Mesh> handle) const override;
+        const Material& material(Handle<Material> handle) const override;
+        const GPUCubemap& cubemap(Handle<Cubemap> handle) const override;
+        Handle<GPUTexture> texture(Handle<Texture> handle) const override;
+
+        Handle<BindingLayout> createBindingLayout(std::span<const BindingLayoutDesc> bindings) override;
+        void destroyBindingLayout(Handle<BindingLayout> handle) override;
+
+        Handle<BindingSet> createBindingSet(Handle<BindingLayout> layout) override;
+        void updateBindingSet(Handle<BindingSet> set, std::span<const BindingDesc> bindings) override;
+        void destroyBindingSet(Handle<BindingSet> handle) override;
+
+        Handle<PipelineLayout> createPipelineLayout(const PipelineLayoutDesc& desc) override;
+        void destroyPipelineLayout(Handle<PipelineLayout> handle) override;
+
+        Handle<Pipeline> createPipeline(Handle<PipelineLayout> layout, const PipelineDesc& desc) override;
+        void destroyPipeline(Handle<Pipeline> handle) override;
+
+        Handle<GPUBuffer> createBuffer(const BufferDesc& desc) override;
+        void updateBuffer(Handle<GPUBuffer> handle, std::span<const std::byte> bytes) override;
+        void destroyBuffer(Handle<GPUBuffer> handle) override;
+
+        Handle<GPUTexture> createTexture(const TextureDesc& desc) override;
+        void destroyTexture(Handle<GPUTexture> handle) override;
+
+        Handle<Mesh> uploadMesh(const Mesh& mesh) override;
+        void destroyMesh(Handle<Mesh> handle) override;
+
+        Handle<Texture> uploadTexture(const Texture& texture) override;
+        void destroyTexture(Handle<Texture> handle) override;
+
+        Handle<Cubemap> uploadCubemap(const Cubemap& cubemap) override;
+        void destroyCubemap(Handle<Cubemap> handle) override;
+
+        Handle<Material> uploadMaterial(const Material& material) override;
+        void destroyMaterial(Handle<Material> handle) override;
     };
 }

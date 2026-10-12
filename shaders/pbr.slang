@@ -1,6 +1,6 @@
 import light;
 import environment;
-import scene_data;
+import camera_data;
 import math;
 
 struct PushConstants {
@@ -25,7 +25,7 @@ struct UniformParams {
 };
 
 [[vk::push_constant]] PushConstants pcs;
-[[vk::binding(0, 0)]] ConstantBuffer<SceneData> sceneData;
+[[vk::binding(0, 0)]] ConstantBuffer<CameraData> cameraData;
 [[vk::binding(1, 0)]] Sampler2D shadowMap;
 
 [[vk::binding(0, 1)]] ConstantBuffer<UniformParams> params;
@@ -83,8 +83,8 @@ float3 applyNormalMap(float3 normal, float3 worldPos, float2 uv) {
 VSOutput vertMain(VSInput input) {
     VSOutput output;
     float4 worldPos = mul(pcs.model, float4(input.position, 1.0));
-    
-    output.position = mul(sceneData.proj, mul(sceneData.view, worldPos));
+
+    output.position = mul(cameraData.proj, mul(cameraData.view, worldPos));
     output.worldPos = worldPos.xyz;
     output.normal = normalize(mul((float3x3)pcs.model, input.normal));
     output.uv = input.uv;
@@ -125,18 +125,18 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     if (params.hasNormalMap > 0.5) {
         N = applyNormalMap(N, vertIn.worldPos, vertIn.uv);
     }
-    
+
     float3 Lo = float3(0);
-    float3 V = normalize(sceneData.cameraPos - vertIn.worldPos);
-    float3 L = normalize(-sceneData.lightDirection);
+    float3 V = normalize(cameraData.cameraPos - vertIn.worldPos);
+    float3 L = normalize(-environmentData.lightDirection);
 
     float NdotL = max(dot(N, L), 0.0);
 
-    float4 shadowCoord = mul(sceneData.lightViewProj, float4(vertIn.worldPos, 1));
-    float shadow = isFrontFace && NdotL > 0.0 
-        ? calculateSoftShadow(shadowMap, shadowCoord, NdotL)
-        : 1.0;
-    float3 radiance = sceneData.lightColor.rgb * sceneData.lightIntensity;
+    float4 shadowCoord = mul(environmentData.lightViewProj, float4(vertIn.worldPos, 1));
+    float shadow = isFrontFace && NdotL > 0.0
+                       ? calculateSoftShadow(shadowMap, shadowCoord, NdotL)
+                       : 1.0;
+    float3 radiance = environmentData.lightColor.rgb * environmentData.lightIntensity;
 
     Lo += calculateLight(baseColor.rgb, N, L, V, F0, roughness, metallic) * radiance * shadow;
 
@@ -156,5 +156,5 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
 
     float3 color = ambient + Lo + emission;
 
-    return float4(color, 1.0);
+    return float4(color, baseColor.a);
 }

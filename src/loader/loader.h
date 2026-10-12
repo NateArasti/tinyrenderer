@@ -7,15 +7,16 @@
 #include "scene.h"
 
 namespace tr::Loading {
-    struct LoadContext {
-        tr::Rendering::RenderingResources& resources;
-    };
-
     class Loader {
     public:
-        static std::unique_ptr<tr::Data::Scene> loadDefaultScene(LoadContext ctx);
-        static std::unique_ptr<tr::Data::Scene> loadModel(
-            LoadContext ctx,
+        static void loadDefaultScene(
+            tr::Data::Scene& scene,
+            tr::Rendering::RenderingResources& resources
+        );
+        
+        static void loadModel(
+            tr::Data::Scene& scene,
+            tr::Rendering::RenderingResources& resources,
             const std::filesystem::path& path
         );
     };

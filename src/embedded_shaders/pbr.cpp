@@ -22,13 +22,13 @@ namespace tr::Data::EmbeddedShaders {
             { "hasRoughnessMap", 0.0f },
             { "hasSpecularMap", 0.0f },
             { "hasOpacityMap", 0.0f },
-            { "diffuseMap", Resources::Handle<Texture>{} },
-            { "emissionMap", Resources::Handle<Texture>{} },
-            { "normalMap", Resources::Handle<Texture>{} },
-            { "metallicMap", Resources::Handle<Texture>{} },
-            { "roughnessMap", Resources::Handle<Texture>{} },
-            { "specularMap", Resources::Handle<Texture>{} },
-            { "opacityMap", Resources::Handle<Texture>{} }
+            { "diffuseMap", Data::Handle<Texture>{} },
+            { "emissionMap", Data::Handle<Texture>{} },
+            { "normalMap", Data::Handle<Texture>{} },
+            { "metallicMap", Data::Handle<Texture>{} },
+            { "roughnessMap", Data::Handle<Texture>{} },
+            { "specularMap", Data::Handle<Texture>{} },
+            { "opacityMap", Data::Handle<Texture>{} }
         };
     }
 }

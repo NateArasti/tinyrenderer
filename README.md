@@ -64,8 +64,9 @@ Executables are written to `build/win-debug` and `build/win-release`.
 
 ## Used Resources
 
-- [Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/) – an ok basics with weird learning curve at start
-- [Learn OpenGL](https://learnopengl.com/) – an excellent and clear overview of various techniques that can be applied not only in OpenGL
+- [Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/) – an ok basics with weird learning curve a the start.
+- [Learn OpenGL](https://learnopengl.com/) – an excellent and clear overview of various techniques that can be applied not only in OpenGL.
+- [Art of Render Graphs](https://alielmorsy.github.io/the-art-of-render-graphs/) - good starting point for understanding the render graph system.
 
 ## TODO
 
@@ -78,6 +79,7 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] DirectX
 - **Rendering Techniques**
   - [x] Skybox Import
+  - [ ] Render Graph
   - [ ] Procedural default skybox
   - [ ] Instanced Rendering
   - [ ] Image-based lighting

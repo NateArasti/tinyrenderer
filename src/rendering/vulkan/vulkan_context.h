@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string_view>
+#include <type_traits>
+
 #define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
 #include <vulkan/vulkan_raii.hpp>
 
@@ -21,6 +24,9 @@ namespace tr::Rendering::Vulkan {
         void pickPhysicalDevice();
         void createLogicalDevice();
         vk::SampleCountFlagBits getMaxSampleCount();
+        void setDebugName(vk::ObjectType type, uint64_t handle, std::string_view name);
+
+        bool _debugUtilsEnabled = false;
 
     public:
         vk::raii::Context context;
@@ -44,7 +50,26 @@ namespace tr::Rendering::Vulkan {
         VulkanContext(VulkanContext&&) = delete;
         VulkanContext& operator=(VulkanContext&&) = delete;
 
-        void setDebugName(vk::ObjectType type, uint64_t handle, const char* name);
+        bool debugUtilsEnabled() const { return _debugUtilsEnabled; }
+
+        template<typename Handle>
+        void setDebugName(Handle handle, std::string_view name) {
+            if (!_debugUtilsEnabled || name.empty()) {
+                return;
+            }
+
+            using NativeHandle = typename Handle::CType;
+            const auto nativeHandle = static_cast<NativeHandle>(handle);
+            const uint64_t value = [&]() {
+                if constexpr (std::is_pointer_v<NativeHandle>) {
+                    return reinterpret_cast<uint64_t>(nativeHandle);
+                }
+                else {
+                    return static_cast<uint64_t>(nativeHandle);
+                }
+            }();
+            setDebugName(Handle::objectType, value, name);
+        }
         
         vk::Format findSupportedFormat(
             const std::vector<vk::Format>& candidates,

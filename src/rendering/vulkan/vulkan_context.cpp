@@ -22,14 +22,7 @@ namespace tr::Rendering::Vulkan {
             uint32_t glfwExtensionCount = 0;
             auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-            std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-            
-            if (enableValidationLayers)
-            {
-                extensions.push_back(vk::EXTDebugUtilsExtensionName);
-            }
-
-            return extensions;
+            return std::vector(glfwExtensions, glfwExtensions + glfwExtensionCount);
         }
 
         bool isDeviceSuitable(
@@ -104,6 +97,7 @@ namespace tr::Rendering::Vulkan {
 
     VulkanContext::VulkanContext(const tr::App::Application& app) {
         createInstance(app);
+        setupDebugMessenger();
         createSurface(app);
         pickPhysicalDevice();
         createLogicalDevice();
@@ -132,13 +126,16 @@ namespace tr::Rendering::Vulkan {
         throw std::runtime_error("failed to find supported format!");
     }
 
-    void VulkanContext::setDebugName(vk::ObjectType type, uint64_t handle, const char* name) {
-        if (!enableValidationLayers) return;
+    void VulkanContext::setDebugName(vk::ObjectType type, uint64_t handle, std::string_view name) {
+        if (!_debugUtilsEnabled || name.empty()) {
+            return;
+        }
 
+        const std::string objectName(name);
         vk::DebugUtilsObjectNameInfoEXT nameInfo{
             .objectType = type,
             .objectHandle = handle,
-            .pObjectName = name
+            .pObjectName = objectName.c_str(),
         };
         device.setDebugUtilsObjectNameEXT(nameInfo);
     }
@@ -176,6 +173,15 @@ namespace tr::Rendering::Vulkan {
 
         auto requiredExtensions = getRequiredInstanceExtensions();
         auto extensionProperties = context.enumerateInstanceExtensionProperties();
+        _debugUtilsEnabled = std::ranges::any_of(
+            extensionProperties,
+            [](const auto& extension) {
+                return strcmp(extension.extensionName, vk::EXTDebugUtilsExtensionName) == 0;
+            }
+        );
+        if (_debugUtilsEnabled) {
+            requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
+        }
         auto unsupportedPropertyIt = std::ranges::find_if(
             requiredExtensions,
             [&extensionProperties](auto const& requiredExtension) {
@@ -213,7 +219,9 @@ namespace tr::Rendering::Vulkan {
     }
 
     void VulkanContext::setupDebugMessenger() {
-        if (!enableValidationLayers) return;
+        if (!enableValidationLayers || !_debugUtilsEnabled) {
+            return;
+        }
 
         vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
             vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |

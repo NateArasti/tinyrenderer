@@ -10,8 +10,8 @@
 #include "import_error.h"
 
 namespace tr::Rendering::Vulkan {
-    CubemapConverter::CubemapConverter(VulkanContext& context, ResourceFactory& factory)
-        : _context(context), _factory(factory)
+    CubemapConverter::CubemapConverter(VulkanContext& context, VulkanAllocator& allocator)
+        : _context(context), _allocator(allocator)
     {
         _commandPool = vk::raii::CommandPool(
             context.device,
@@ -26,7 +26,7 @@ namespace tr::Rendering::Vulkan {
             -1.0f,  3.0f,
              3.0f, -1.0f
         };
-        _vertexBuffer = factory.uploadBuffer(
+        _vertexBuffer = allocator.uploadBuffer(
             std::as_bytes(std::span(vertices)),
             vk::BufferUsageFlagBits::eVertexBuffer
         );
@@ -249,14 +249,14 @@ namespace tr::Rendering::Vulkan {
         _context.queue.waitIdle();
     }
 
-    GPUImage CubemapConverter::renderFaces(
-        const GPUImage& source,
+    VulkanImage CubemapConverter::renderFaces(
+        const VulkanImage& source,
         CubemapConverter::ConversionPipeline& pipeline,
         uint32_t faceSize,
         bool generateMipmaps
     ) {
         const uint32_t mipLevels = generateMipmaps ? std::bit_width(faceSize) : 1;
-        GPUImage target = _factory.createImage(
+        VulkanImage target = _allocator.createImage(
             {
                 .flags = vk::ImageCreateFlagBits::eCubeCompatible,
                 .imageType = vk::ImageType::e2D,
@@ -279,7 +279,7 @@ namespace tr::Rendering::Vulkan {
         std::vector<vk::raii::ImageView> faceViews;
         faceViews.reserve(6);
         for (uint32_t face = 0; face < 6; ++face) {
-            faceViews.push_back(_factory.createImageView(target.image, {
+            faceViews.push_back(_allocator.createImageView(target.image, {
                 .viewType = vk::ImageViewType::e2D,
                 .format = CUBEMAPS_FORMAT,
                 .aspectMask = vk::ImageAspectFlagBits::eColor,
@@ -375,13 +375,13 @@ namespace tr::Rendering::Vulkan {
             commandBuffer.endRendering();
         }
 
-        _factory.generateMipmaps(commandBuffer, target, vk::ImageLayout::eColorAttachmentOptimal);
+        _allocator.generateMipmaps(commandBuffer, target, vk::ImageLayout::eColorAttachmentOptimal);
 
         submitCommands(commandBuffer);
         return target;
     }
 
-    GPUImage CubemapConverter::convertEquirectangular(const GPUImage& source) {
+    VulkanImage CubemapConverter::convertEquirectangular(const VulkanImage& source) {
         if (
             source.extent.width < 4 ||
             source.extent.height < 2 ||
@@ -395,7 +395,7 @@ namespace tr::Rendering::Vulkan {
         return renderFaces(source, _environmentPipeline, source.extent.width / 4, true);
     }
 
-    GPUImage CubemapConverter::convolveIrradiance(const GPUImage& cubemap) {
+    VulkanImage CubemapConverter::convolveIrradiance(const VulkanImage& cubemap) {
         static constexpr uint32_t IRRADIANCE_FACE_SIZE = 32;
         return renderFaces(cubemap, _irradiancePipeline, IRRADIANCE_FACE_SIZE);
     }

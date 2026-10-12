@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gameobject.h"
+#include "transform.h"
 
 namespace tr::Data {
     enum class CameraProjection {

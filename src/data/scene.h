@@ -5,9 +5,10 @@
 #include <vector>
 #include <memory>
 
-#include "pool.h"
 #include "gameobject.h"
-#include "light.h"
+#include "mesh.h"
+#include "texture.h"
+#include "material.h"
 
 namespace tr::Data {
     struct MeshBounds {
@@ -22,7 +23,9 @@ namespace tr::Data {
         bool _hasBounds = false;
     
     public:
-        tr::Resources::Pool<Material> materials;
+        std::vector<Handle<Mesh>> ownedMeshes;
+        std::vector<Handle<Texture>> ownedTextures;
+        std::vector<Handle<Material>> ownedMaterials;
 
         glm::vec3 sceneMin = glm::vec3(std::numeric_limits<float>::max());
         glm::vec3 sceneMax = glm::vec3(std::numeric_limits<float>::lowest());
@@ -41,6 +44,10 @@ namespace tr::Data {
 
         auto& getObjects() { return _objects; }
         const auto& getObjects() const { return _objects; }
+
+        void own(Handle<Mesh> handle) { ownedMeshes.push_back(handle); }
+        void own(Handle<Texture> handle) { ownedTextures.push_back(handle); }
+        void own(Handle<Material> handle) { ownedMaterials.push_back(handle); }
 
         MeshBounds registerMesh(const Mesh& mesh) {
             verticesCount += mesh.vertices.size();
