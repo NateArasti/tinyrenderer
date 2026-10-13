@@ -13,7 +13,13 @@ namespace tr::Rendering {
         _pipeline = resources.createPipeline(_pipelineLayout, {
             .shader = shader,
             .vertexBinding = { sizeof(Data::Mesh::Vertex) },
-            .vertexAttributes = meshAttributes(),
+            .vertexAttributes = {
+                {
+                    0,
+                    R32G32B32SFloat,
+                    offsetof(Data::Mesh::Vertex, position)
+                }
+            },
             .rasterization = {
                 .cullMode = CullMode::None,
                 .depthBiasEnabled = true,

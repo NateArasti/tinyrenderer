@@ -36,7 +36,13 @@ namespace tr::Rendering {
             BindingLayoutDesc{ 1, BindingType::CombinedImageSampler, ShaderStages::Fragment },
         };
         _cameraLayout = resources.createBindingLayout(cameraBindings);
-        _environmentLayout = resources.createBindingLayout(cameraBindings);
+        const std::array environmentBindings{
+            BindingLayoutDesc{ 0, BindingType::UniformBuffer, stages },
+            BindingLayoutDesc{ 1, BindingType::CombinedImageSampler, ShaderStages::Fragment },
+            BindingLayoutDesc{ 2, BindingType::CombinedImageSampler, ShaderStages::Fragment },
+            BindingLayoutDesc{ 3, BindingType::CombinedImageSampler, ShaderStages::Fragment },
+        };
+        _environmentLayout = resources.createBindingLayout(environmentBindings);
         std::vector<BindingLayoutDesc> materialBindings{ { 0, BindingType::UniformBuffer, stages } };
         for (const auto& param : _shader.params) {
             if (_shader.isTextureParam(param.defaultValue)) {
@@ -114,7 +120,12 @@ namespace tr::Rendering {
         PipelineDesc desc{
             .shader = _shader,
             .vertexBinding = { sizeof(Data::Mesh::Vertex) },
-            .vertexAttributes = meshAttributes(),
+            .vertexAttributes = {
+                { 0, R32G32B32SFloat, offsetof(Data::Mesh::Vertex, position) },
+                { 1, R32G32B32SFloat, offsetof(Data::Mesh::Vertex, normal) },
+                { 2, R32G32SFloat, offsetof(Data::Mesh::Vertex, uv) },
+                { 3, R32G32B32A32SFloat, offsetof(Data::Mesh::Vertex, color) }
+            },
             .rasterization = { .cullMode = _shader.cullMode },
             .depth = {
                 .testEnabled = true,
@@ -135,6 +146,8 @@ namespace tr::Rendering {
         builder.write(resolve, TextureState::ColorAttachment);
         builder.read(shadow, TextureState::ShaderRead);
         builder.read(irradiance, TextureState::ShaderRead);
+        builder.read(prefiltered, TextureState::ShaderRead);
+        builder.read(brdf, TextureState::ShaderRead);
 
         builder.read(target, TextureState::ColorAttachment);
         builder.write(target, TextureState::ColorAttachment);
@@ -148,6 +161,8 @@ namespace tr::Rendering {
         const std::array environmentBindings{
             BindingDesc{ 0, BufferBinding{ frame.environmentDataBuffer } },
             BindingDesc{ 1, ImageSamplerBinding{ context.texture(irradiance) } },
+            BindingDesc{ 2, ImageSamplerBinding{ context.texture(prefiltered) } },
+            BindingDesc{ 3, ImageSamplerBinding{ context.texture(brdf) } },
         };
         _resources.updateBindingSet(_cameraSets[frame.slot], cameraBindings);
         _resources.updateBindingSet(_environmentSets[frame.slot], environmentBindings);

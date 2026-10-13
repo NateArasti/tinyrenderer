@@ -232,6 +232,17 @@ namespace tr::Rendering {
             cubemap.irradiance,
             TextureState::ShaderRead
         );
+        const auto prefiltered = graph.importTexture(
+            "Prefiltered environment",
+            cubemap.prefiltered,
+            TextureState::ShaderRead
+        );
+        const auto brdf = graph.importTexture(
+            "BRDF LUT",
+            cubemap.brdf,
+            TextureState::ShaderRead
+        );
+
 
         _skyboxPass->target = color;
         _skyboxPass->cubemap = skybox;
@@ -247,6 +258,8 @@ namespace tr::Rendering {
         _colorPass->resolve = _samples > 1 ? backbuffer : RGHandle{};
         _colorPass->shadow = _shadowPass->target;
         _colorPass->irradiance = irradiance;
+        _colorPass->prefiltered = prefiltered;
+        _colorPass->brdf = brdf;
         _colorPass->opaque = _opaqueDrawQueue;
         _colorPass->transparent = _transparentDrawQueue;
         graph.addPass(*_colorPass);

@@ -43,6 +43,9 @@ namespace tr::Rendering {
         RGHandle resolve;
         RGHandle shadow;
         RGHandle irradiance;
+        RGHandle prefiltered;
+        RGHandle brdf;
+
         std::span<const DrawCommand> opaque;
         std::span<const DrawCommand> transparent;
 

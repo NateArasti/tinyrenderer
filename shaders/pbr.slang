@@ -39,6 +39,8 @@ struct UniformParams {
 
 [[vk::binding(0, 2)]] ConstantBuffer<EnvironmentData> environmentData;
 [[vk::binding(1, 2)]] SamplerCube irradianceMap;
+[[vk::binding(2, 2)]] SamplerCube prefilterMap;
+[[vk::binding(3, 2)]] Sampler2D brdfLUT;
 
 struct VSInput {
     float3 position : POSITION;
@@ -141,13 +143,37 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     Lo += calculateLight(baseColor.rgb, N, L, V, F0, roughness, metallic) * radiance * shadow;
 
     float3 kS = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-    float3 kD = (1.0 - kS) * (1.0 - metallic);
-    float3 rotatedDirection = rotate(N, float3(0, 1, 0), environmentData.rotation);
-    float3 irradiance = environmentData.hasSkybox > 0.5 
-        ? irradianceMap.Sample(rotatedDirection).rgb 
-        : environmentData.clearColor;
-    irradiance *= environmentData.tint * environmentData.exposure;
-    float3 ambient = kD * irradiance * baseColor.rgb;
+    float NdotV = max(dot(N, V), 0.0);
+    float3 F = fresnelSchlickRoughness(NdotV, F0, roughness);
+    float3 kD = (1.0 - F) * (1.0 - metallic);
+    float3 rotatedN = rotate(N, float3(0.0, 1.0, 0.0), environmentData.rotation);
+
+    float3 R = reflect(-V, N);
+    float3 rotatedR = rotate(R, float3(0.0, 1.0, 0.0), environmentData.rotation);
+
+    static const float MAX_REFLECTION_LOD = 4.0;
+
+    float3 irradiance;
+    float3 prefiltered;
+    if (environmentData.hasSkybox > 0.5) {
+        irradiance = irradianceMap.Sample(rotatedN).rgb;
+        prefiltered = prefilterMap.SampleLevel(rotatedR, roughness * MAX_REFLECTION_LOD).rgb;
+    }
+    else {
+        // A constant environment remains constant after convolution.
+        irradiance = environmentData.clearColor;
+        prefiltered = environmentData.clearColor;
+    }
+
+    float3 environmentScale = environmentData.tint * environmentData.exposure;
+    irradiance *= environmentScale;
+    prefiltered *= environmentScale;
+
+    float2 brdf = brdfLUT.Sample(float2(NdotV, roughness)).rg;
+
+    float3 diffuseIBL = kD * irradiance * baseColor.rgb;
+    float3 specularIBL = prefiltered * (F0 * brdf.x + brdf.y);
+    float3 ambient = diffuseIBL + specularIBL;
 
     float3 emission = params.emissionColor.rgb;
     if (params.hasEmissionMap > 0.5) {

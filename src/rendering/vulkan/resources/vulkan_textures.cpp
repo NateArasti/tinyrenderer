@@ -1,5 +1,8 @@
 #include "vulkan_resources.h"
 
+#include <array>
+#include <string_view>
+#include <utility>
 
 #include "vulkan_utility.h"
 
@@ -17,7 +20,12 @@ namespace tr::Rendering::Vulkan {
         _fallbackTexture = storeTexture("Fallback texture", std::move(whiteImage), true);
 
         const std::array<uint8_t, 24> black{};
-        for (auto* handle : { &_fallbackCubemap.skybox, &_fallbackCubemap.irradiance }) {
+        const std::array<std::pair<Handle<GPUTexture>*, std::string_view>, 3> cubemapFallbacks{
+            std::pair{ &_fallbackCubemap.skybox, "Fallback skybox" },
+            std::pair{ &_fallbackCubemap.irradiance, "Fallback irradiance" },
+            std::pair{ &_fallbackCubemap.prefiltered, "Fallback prefiltered environment" },
+        };
+        for (const auto& [handle, name] : cubemapFallbacks) {
             auto blackImage = _allocator.uploadTexture(
                 std::as_bytes(std::span(black)),
                 1, 1,
@@ -26,11 +34,19 @@ namespace tr::Rendering::Vulkan {
                 6,
                 true
             );
-            const auto name = handle == &_fallbackCubemap.skybox
-                ? "Fallback skybox"
-                : "Fallback irradiance";
             *handle = storeTexture(name, std::move(blackImage), false);
         }
+
+        const std::array<float, 2> neutralBrdf{ 1.0f, 0.0f };
+        auto brdfImage = _allocator.uploadTexture(
+            std::as_bytes(std::span(neutralBrdf)),
+            1, 1,
+            vk::Format::eR32G32Sfloat,
+            false,
+            1,
+            false
+        );
+        _fallbackCubemap.brdf = storeTexture("Fallback BRDF LUT", std::move(brdfImage), false);
     }
 
     Handle<GPUTexture> VulkanResources::storeTexture(

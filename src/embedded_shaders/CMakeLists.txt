@@ -59,27 +59,29 @@ add_embedded_shader_code(
     "${SHADER_SOURCE_DIR}/environment.slang"
     "${SHADER_SOURCE_DIR}/math.slang"
 )
+add_embedded_shader_code(
+    prefilter_environment
+    PrefilterEnvironment
+    prefilter_environment.h
 
-add_library(embedded_shaders STATIC
-    pbr.h
-    pbr.cpp
-    shadow.h
-    shadow.cpp
-    skybox.h
-    skybox.cpp
-    equirectangular_conversion.h
-    equirectangular_conversion.cpp
-    irradiance_convolution.h
-    irradiance_convolution.cpp
-    ${EMBEDDED_SHADER_CODE_FILES}
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/ibl.slang"
+    "${SHADER_SOURCE_DIR}/light.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(
+    brdf_integration
+    BRDFIntegration
+    brdf_integration.h
+
+    "${SHADER_SOURCE_DIR}/ibl.slang"
 )
 
-target_include_directories(embedded_shaders
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
+file(GLOB SOURCES
+    "*.h"
+    "*.cpp"
 )
+add_library(embedded_shaders STATIC ${SOURCES} ${EMBEDDED_SHADER_CODE_FILES})
 
-target_link_libraries(embedded_shaders
-    PUBLIC
-        data
-)
+target_include_directories(embedded_shaders PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(embedded_shaders PUBLIC data)

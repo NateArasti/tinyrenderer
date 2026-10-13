@@ -142,17 +142,7 @@ namespace tr::Rendering {
         Format format;
         uint32_t offset;
     };
-
-    inline std::vector<VertexAttributeDesc> meshAttributes() {
-        using Vertex = Data::Mesh::Vertex;
-        return {
-            { 0, R32G32B32SFloat, offsetof(Vertex, position) },
-            { 1, R32G32B32SFloat, offsetof(Vertex, normal) },
-            { 2, R32G32SFloat, offsetof(Vertex, uv) },
-            { 3, R32G32B32A32SFloat, offsetof(Vertex, color) }
-        };
-    }
-
+    
     struct RasterizationDesc {
         tr::Data::CullMode cullMode = tr::Data::CullMode::Back;
         WindingOrder frontFace = WindingOrder::CounterClockwise;
@@ -221,5 +211,7 @@ namespace tr::Rendering {
     struct GPUCubemap {
         Handle<GPUTexture> skybox;
         Handle<GPUTexture> irradiance;
+        Handle<GPUTexture> prefiltered;
+        Handle<GPUTexture> brdf;
     };
 }

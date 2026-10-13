@@ -79,10 +79,10 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] DirectX
 - **Rendering Techniques**
   - [x] Skybox Import
-  - [ ] Render Graph
+  - [x] Render Graph
+  - [x] Image-based lighting
   - [ ] Procedural default skybox
   - [ ] Instanced Rendering
-  - [ ] Image-based lighting
   - [ ] Cel-Shading
   - [ ] Surface Dithering
   - [ ] Point and spot lights

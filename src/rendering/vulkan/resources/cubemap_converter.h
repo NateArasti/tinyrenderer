@@ -33,10 +33,18 @@ namespace tr::Rendering::Vulkan {
 
         ConversionPipeline _environmentPipeline;
         ConversionPipeline _irradiancePipeline;
+        ConversionPipeline _prefilterPipeline;
+        ConversionPipeline _brdfPipeline;
 
-        ConversionPipeline createPipeline(const tr::Data::Shader& shader, vk::Format destinationFormat);
         vk::raii::CommandBuffer beginCommands();
         void submitCommands(const vk::raii::CommandBuffer& commandBuffer) const;
+
+        ConversionPipeline createPipeline(
+            const tr::Data::Shader& shader,
+            vk::Format destinationFormat,
+            bool usesSourceTexture,
+            uint32_t pushConstantSize
+        );
         VulkanImage renderFaces(
             const VulkanImage& source,
             CubemapConverter::ConversionPipeline& pipeline,
@@ -57,5 +65,7 @@ namespace tr::Rendering::Vulkan {
 
         VulkanImage convertEquirectangular(const VulkanImage& source);
         VulkanImage convolveIrradiance(const VulkanImage& environment);
+        VulkanImage prefilterEnvironment(const VulkanImage& environment);
+        VulkanImage integrateBRDF();
     };
 }

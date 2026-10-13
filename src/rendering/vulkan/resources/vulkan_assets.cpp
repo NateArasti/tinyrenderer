@@ -88,10 +88,14 @@ namespace tr::Rendering::Vulkan {
         );
         auto skybox = _cubemapConverter.convertEquirectangular(image);
         auto irradiance = _cubemapConverter.convolveIrradiance(skybox);
+        auto prefilter = _cubemapConverter.prefilterEnvironment(skybox);
+        auto brdf = _cubemapConverter.integrateBRDF();
         const auto name = source.name.empty() ? "Cubemap" : source.name;
         const GPUCubemap cubemap{
             .skybox = storeTexture(name + " skybox", std::move(skybox), false),
             .irradiance = storeTexture(name + " irradiance", std::move(irradiance), false),
+            .prefiltered = storeTexture(name + " prefilter", std::move(prefilter), false),
+            .brdf = storeTexture(name + " brdf", std::move(brdf), false),
         };
         Handle<Cubemap> handle{ _nextHandle++ };
         _cubemaps.emplace(handle.index, cubemap);
@@ -106,6 +110,8 @@ namespace tr::Rendering::Vulkan {
         _context.device.waitIdle();
         destroyTexture(entry.mapped().skybox);
         destroyTexture(entry.mapped().irradiance);
+        destroyTexture(entry.mapped().prefiltered);
+        destroyTexture(entry.mapped().brdf);
     }
 
     const GPUCubemap& VulkanResources::cubemap(Handle<Cubemap> handle) const {
