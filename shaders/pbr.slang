@@ -165,7 +165,7 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
         prefiltered = environmentData.clearColor;
     }
 
-    float3 environmentScale = environmentData.tint * environmentData.exposure;
+    float3 environmentScale = environmentData.tint * environmentData.intensity;
     irradiance *= environmentScale;
     prefiltered *= environmentScale;
 

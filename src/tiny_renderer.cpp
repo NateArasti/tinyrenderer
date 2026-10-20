@@ -31,6 +31,8 @@
 #include "vulkan_rhi.h"
 #include "window.h"
 #include "cubemap_loader.h"
+#include "environment.h"
+#include "post_processing_data.h"
 
 namespace tr {
     namespace {
@@ -59,6 +61,7 @@ namespace tr {
         
         std::unique_ptr<Data::Scene> currentScene;
         Data::Environment environment;
+        Data::PostProcessingData postProcessingData;
 
         Data::Camera camera;
         std::unique_ptr<Controllers::CameraController> cameraController;
@@ -69,6 +72,7 @@ namespace tr {
         UI::UIWindow envWindow;
         UI::UIWindow lightWindow;
         UI::UIWindow cameraWindow;
+        UI::UIWindow postProcessingWindow;
         std::string gpuName;
         std::string modelName = "Default Scene";
         std::string importError;
@@ -110,11 +114,12 @@ namespace tr {
         void setupUI() {
             debugWindow = UI::UIWindow{
                 .name = "Debug",
-                .width = 260.0f,
-                .height = 105.0f,
+                .width = 200.0f,
+                .height = 110.0f,
                 .drawCallback = [this]() {
+                    ImGui::PushItemWidth(70.0f);
                     ImGui::Text("FPS: %d", static_cast<int>(1.0f / smoothedDeltaTime));
-                    ImGui::TextUnformatted(gpuName.c_str());
+                    ImGui::TextWrapped(gpuName.c_str());
 
                     const uint32_t currentSamples = rhi->getMsaaSamples();
                     const std::string preview = std::to_string(currentSamples) + "x";
@@ -131,13 +136,16 @@ namespace tr {
                         }
                         ImGui::EndCombo();
                     }
+                    ImGui::PopItemWidth();
                 },
             };
 
             modelWindow = UI::UIWindow{
                 .name = "Model",
+                .width = 250.0f,
                 .height = 180.0f,
                 .drawCallback = [this]() {
+                    ImGui::PushItemWidth(120.0f);
                     if (ImGui::Button("Load Model")) {
                         loadSelectedModel();
                     }
@@ -148,16 +156,17 @@ namespace tr {
                         syncSceneUI();
                     }
                     ImGui::Separator();
-                    ImGui::TextUnformatted(modelName.c_str());
+                    ImGui::TextWrapped(modelName.c_str());
                     ImGui::Separator();
                     const glm::vec3 bounds = currentScene->getSceneBounds().second * currentScene->scale;
-                    ImGui::Text("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
-                    ImGui::Text("Vertices: %zu", currentScene->verticesCount);
-                    ImGui::Text("Polygons: %zu", currentScene->polygonCount);
-                    ImGui::Text("Objects: %zu", currentScene->getObjects().size());
+                    ImGui::TextWrapped("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
+                    ImGui::TextWrapped("Vertices: %zu", currentScene->verticesCount);
+                    ImGui::TextWrapped("Polygons: %zu", currentScene->polygonCount);
+                    ImGui::TextWrapped("Objects: %zu", currentScene->getObjects().size());
                     ImGui::Separator();
                     currentScene->scale = std::max(currentScene->scale, 0.001f);
                     ImGui::DragFloat("Scale", &currentScene->scale, 0.01f, 0.001f, 1000.0f, "%.3f");
+                    ImGui::PopItemWidth();
 
                     drawImportErrorPopup();
                 }
@@ -165,22 +174,27 @@ namespace tr {
 
             envWindow = UI::UIWindow{
                 .name = "Environment",
-                .width = 350.0f,
-                .height = 160.0f,
+                .width = 225.0f,
+                .height = 125.0f,
                 .drawCallback = [this]() {
+                    ImGui::PushItemWidth(120.0f);
                     if (ImGui::Button("Load Skybox")) {
                         loadSkybox();
                     }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Clear Skybox")) {
-                        renderer->getResources().destroyCubemap(environment.skyboxHandle);
-                        environment.skyboxHandle = {};
+                    if (environment.skyboxHandle.isValid()) {
+                        ImGui::SameLine();
+                        if (ImGui::Button("Clear Skybox")) {
+                            renderer->getResources().destroyCubemap(environment.skyboxHandle);
+                            environment.skyboxHandle = {};
+                        }
+                        ImGui::ColorEdit3("Tint", &environment.skyboxTint.x);
+                        ImGui::SliderFloat("Intensity", &environment.skyboxIntensity, 0.0f, 10.0f);
+                        ImGui::SliderAngle("Rotation", &environment.skyboxRotation);
                     }
-                    ImGui::ColorEdit3("Tint", &environment.skyboxTint.x);
-                    ImGui::SliderFloat("Exposure", &environment.skyboxExposure, 0.0f, 10.0f);
-                    ImGui::SliderAngle("Rotation", &environment.skyboxRotation);
-                    ImGui::Separator();
-                    ImGui::ColorEdit3("Clear Color", &environment.clearColor.x);
+                    else {
+                        ImGui::ColorEdit3("Clear Color", &environment.clearColor.x);
+                    }
+                    ImGui::PopItemWidth();
 
                     drawImportErrorPopup();
                 }
@@ -190,6 +204,7 @@ namespace tr {
                 .name = "Light",
                 .height = 175.0f,
                 .drawCallback = [this]() {
+                    ImGui::PushItemWidth(120.0f);
                     ImGui::Checkbox("Enabled", &environment.directionalLight.enabled);
                     ImGui::Checkbox("Shadows", &environment.directionalLight.shadowsEnabled);
                     ImGui::Separator();
@@ -207,15 +222,16 @@ namespace tr {
                         updateLightDirection();
                     }
                     ImGui::EndDisabled();
+                    ImGui::PopItemWidth();
                 }
             };
 
             cameraWindow = UI::UIWindow{
                 .name = "Camera",
-                .width = 300.0f,
-                .height = 250.0f,
+                .width = 270.0f,
+                .height = 225.0f,
                 .drawCallback = [this]() {
-                    ImGui::PushItemWidth(160.0f);
+                    ImGui::PushItemWidth(120.0f);
 
                     int controller = static_cast<int>(cameraControllerType);
                     if (ImGui::Combo("Controller", &controller, "Free Move\0Orbit\0")) {
@@ -260,8 +276,28 @@ namespace tr {
                 }
             };
 
+            postProcessingWindow = UI::UIWindow{
+                .name = "Post Processing",
+                .width = 200.0f,
+                .height = 120.0f,
+                .drawCallback = [this]() {
+                    ImGui::PushItemWidth(80.0f);
+                    ImGui::InputInt("Exposure", &postProcessingData.exposure);
+                    int32_t selected = static_cast<int32_t>(postProcessingData.tonemapping);
+                    if (ImGui::Combo(
+                        "Tone Mapping",
+                        &selected,
+                        tr::Data::toneMappingNames,
+                        IM_ARRAYSIZE(tr::Data::toneMappingNames))
+                    ) {
+                        postProcessingData.tonemapping = static_cast<Tonemapping>(selected);
+                    }
+                    ImGui::PopItemWidth();
+                }
+            };
+
             uiState.leftWindows = { &modelWindow, &envWindow, &lightWindow };
-            uiState.rightWindows = { &debugWindow, &cameraWindow };
+            uiState.rightWindows = { &debugWindow, &cameraWindow, &postProcessingWindow };
         }
 
         void setupRendering() {
@@ -500,7 +536,7 @@ namespace tr {
                 }
 
                 if (window.width() != 0 && window.height() != 0) {
-                    renderer->render(*currentScene, camera, environment, uiDrawData);
+                    renderer->render(*currentScene, camera, environment, postProcessingData, uiDrawData);
                 }
             }
 

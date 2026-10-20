@@ -28,6 +28,7 @@ namespace tr::Rendering::Vulkan {
         std::vector<vk::raii::CommandBuffer> _commandBuffers;
         
         std::vector<Handle<GPUTexture>> _backbuffers;
+        std::vector<Handle<GPUTexture>> _hdrTargets;
         std::vector<Handle<GPUTexture>> _msaaTargets;
         std::vector<Handle<GPUTexture>> _depthTargets;
         std::vector<TextureState> _backbufferStates;

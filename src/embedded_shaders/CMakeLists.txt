@@ -76,6 +76,11 @@ add_embedded_shader_code(
 
     "${SHADER_SOURCE_DIR}/ibl.slang"
 )
+add_embedded_shader_code(
+    post_processing
+    PostProcessing
+    post_processing.h
+)
 
 file(GLOB SOURCES
     "*.h"

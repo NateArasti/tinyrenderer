@@ -47,7 +47,8 @@ namespace tr::Rendering::Vulkan {
 
     Handle<Texture> VulkanResources::uploadTexture(const Texture& texture) {
         const auto format = texture.colorSpace == TextureColorSpace::SRGB
-            ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm;
+            ? vk::Format::eR8G8B8A8Srgb
+            : vk::Format::eR8G8B8A8Unorm;
         auto allocation = _allocator.uploadTexture(
             std::as_bytes(std::span(texture.pixels)),
             texture.width,

@@ -77,14 +77,16 @@ Executables are written to `build/win-debug` and `build/win-release`.
 - **Rendering Backends**
   - [ ] WebGPU
   - [ ] DirectX
+  - [ ] OpenGL
 - **Rendering Techniques**
   - [x] Skybox Import
   - [x] Render Graph
   - [x] Image-based lighting
-  - [ ] Procedural default skybox
   - [ ] Instanced Rendering
+  - [ ] Procedural default skybox
   - [ ] Cel-Shading
   - [ ] Surface Dithering
+  - [ ] Occlusion Culling
   - [ ] Point and spot lights
   - [ ] Imported scene lights
   - [ ] Animations
@@ -94,8 +96,8 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] OIT
   - [ ] Ray Tracing
 - **Post-processing**
+  - [x] HDR and Tonemapping
   - [ ] Ambient Occlusion
-  - [ ] HDR and Tonemapping
   - [ ] Color grading
   - [ ] Vignette
   - [ ] Film grain

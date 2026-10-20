@@ -18,7 +18,6 @@ namespace tr::Loading {
         ) {
             int width = 0;
             int height = 0;
-            const bool hdr = stbi_is_hdr(path.string().c_str()) != 0;
             float* pixels = stbi_loadf(path.string().c_str(), &width, &height, nullptr, STBI_rgb_alpha);
             if (pixels == nullptr) {
                 throw ImportError(
@@ -29,7 +28,6 @@ namespace tr::Loading {
             cubemap->name = path.stem().string();
             cubemap->width = width;
             cubemap->height = height;
-            cubemap->hdr = hdr;
             size_t totalPixelSize = static_cast<size_t>(width) * static_cast<size_t>(height) * STBI_rgb_alpha;
             cubemap->pixels.assign(pixels, pixels + totalPixelSize);
             stbi_image_free(pixels);
@@ -66,7 +64,6 @@ namespace tr::Loading {
             cubemap->name = path.stem().string();
             cubemap->width = width;
             cubemap->height = height;
-            cubemap->hdr = true;
             const size_t totalPixelSize = static_cast<size_t>(width) * height * 4;
             cubemap->pixels.assign(pixels.get(), pixels.get() + totalPixelSize);
             return cubemap;

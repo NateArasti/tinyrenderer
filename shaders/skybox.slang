@@ -33,6 +33,6 @@ float4 fragMain(VSOutput input) : SV_TARGET {
     float3 worldDirection = normalize(mul(transpose((float3x3)cameraData.view), viewDirection));
     float3 rotatedDirection = rotate(worldDirection, float3(0, 1, 0), environmentData.rotation);
     float3 color = cubemap.Sample(rotatedDirection).rgb;
-    color *= environmentData.tint * environmentData.exposure;
+    color *= environmentData.tint * environmentData.intensity;
     return float4(color, 1.0);
 }

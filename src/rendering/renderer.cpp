@@ -58,7 +58,7 @@ namespace tr::Rendering {
                 .clearColor = env.clearColor,
                 .skyboxRotation = env.skyboxRotation,
                 .skyboxTint = env.skyboxTint,
-                .skyboxExposure = env.skyboxExposure,
+                .skyboxIntensity = env.skyboxIntensity,
                 .lightDirection = env.directionalLight.direction,
                 .lightIntensity = env.directionalLight.enabled ? env.directionalLight.intensity : 0.0f,
                 .lightColor = env.directionalLight.color,
@@ -86,6 +86,7 @@ namespace tr::Rendering {
         _skyboxPass = std::make_unique<SkyboxPass>(resources);
         _shadowPass = std::make_unique<ShadowPass>(resources);
         _colorPass = std::make_unique<ColorPass>(resources);
+        _postProcessingPass = std::make_unique<PostProcessingPass>(resources);
         _uiPass = std::make_unique<UIPass>(resources, _rhi.uiRenderer());
     }
 
@@ -93,6 +94,7 @@ namespace tr::Rendering {
         _rhi.waitIdle();
         invalidateSceneCaches();
         _uiPass.reset();
+        _postProcessingPass.reset();
         _colorPass.reset();
         _shadowPass.reset();
         _skyboxPass.reset();
@@ -135,15 +137,16 @@ namespace tr::Rendering {
 
     void Renderer::updatePipelines(const FrameContext& frame) {
         const auto samples = _rhi.getMsaaSamples();
-        const auto colorFormat = frame.colorFormat;
-        if (_colorFormat == colorFormat && _samples == samples) {
+        const auto finalColorFormat = frame.colorFormat;
+        if (_colorFormat == finalColorFormat && _samples == samples) {
             return;
         }
 
         _rhi.waitIdle();
-        _skyboxPass->createPipeline(colorFormat, samples);
-        _colorPass->createPipelines(colorFormat, _rhi.getDepthFormat(), samples);
-        _colorFormat = colorFormat;
+        _skyboxPass->createPipeline(HDR_FORMAT, samples);
+        _colorPass->createPipelines(HDR_FORMAT, _rhi.getDepthFormat(), samples);
+        _postProcessingPass->createPipeline(finalColorFormat);
+        _colorFormat = finalColorFormat;
         _samples = samples;
     }
 
@@ -206,7 +209,8 @@ namespace tr::Rendering {
     void Renderer::setupGraph(
         RenderGraph& graph,
         const FrameContext& frame,
-        const Data::Environment& environment,
+        const tr::Data::Environment& environment,
+        const PostProcessingData& postProcessingData,
         ImDrawData* uiDrawData
     ) {
         auto& resources = _rhi.resources();
@@ -216,8 +220,14 @@ namespace tr::Rendering {
             frame.backbuffer,
             frame.backbufferInitialState
         );
-        const auto color = frame.colorTarget == frame.backbuffer
-            ? backbuffer
+        const auto hdr = graph.importTexture(
+            "HDR",
+            frame.hdrTarget,
+            TextureState::Undefined
+        );
+        const auto color =
+            frame.colorTarget == frame.hdrTarget
+            ? hdr
             : graph.importTexture("MSAA color", frame.colorTarget, TextureState::Undefined);
         const auto depth = graph.importTexture("Depth", frame.depthTarget, TextureState::Undefined);
 
@@ -243,19 +253,19 @@ namespace tr::Rendering {
             TextureState::ShaderRead
         );
 
-
         _skyboxPass->target = color;
         _skyboxPass->cubemap = skybox;
         graph.addPass(*_skyboxPass);
 
-        _shadowPass->draws = environment.directionalLight.enabled && environment.directionalLight.shadowsEnabled
+        _shadowPass->draws =
+            environment.directionalLight.enabled && environment.directionalLight.shadowsEnabled
             ? std::span<const DrawCommand>(_opaqueDrawQueue)
             : std::span<const DrawCommand>();
         graph.addPass(*_shadowPass);
 
         _colorPass->target = color;
         _colorPass->depth = depth;
-        _colorPass->resolve = _samples > 1 ? backbuffer : RGHandle{};
+        _colorPass->resolve = _samples > 1 ? hdr : RGHandle{};
         _colorPass->shadow = _shadowPass->target;
         _colorPass->irradiance = irradiance;
         _colorPass->prefiltered = prefiltered;
@@ -263,6 +273,11 @@ namespace tr::Rendering {
         _colorPass->opaque = _opaqueDrawQueue;
         _colorPass->transparent = _transparentDrawQueue;
         graph.addPass(*_colorPass);
+
+        _postProcessingPass->postProcessingData = postProcessingData;
+        _postProcessingPass->source = hdr;
+        _postProcessingPass->target = backbuffer;
+        graph.addPass(*_postProcessingPass);
 
         if (uiDrawData != nullptr) {
             _uiPass->target = backbuffer;
@@ -277,6 +292,7 @@ namespace tr::Rendering {
         const Data::Scene& scene,
         const Data::Camera& camera,
         const Data::Environment& environment,
+        const PostProcessingData& postProcessingData,
         ImDrawData* uiDrawData
     ) {
         auto frame = _rhi.startFrame();
@@ -289,7 +305,7 @@ namespace tr::Rendering {
         prepareDrawCalls(scene, camera);
 
         RenderGraph graph(_rhi.resources());
-        setupGraph(graph, *frame, environment, uiDrawData);
+        setupGraph(graph, *frame, environment, postProcessingData, uiDrawData);
         graph.build();
         graph.execute(*frame);
 

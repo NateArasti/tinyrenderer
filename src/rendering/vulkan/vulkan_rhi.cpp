@@ -68,10 +68,18 @@ namespace tr::Rendering::Vulkan {
                     .name = "MSAA color " + std::to_string(i),
                     .width = extent.width,
                     .height = extent.height,
-                    .format = fromVulkanFormat(_swapchain.format()),
+                    .format = HDR_FORMAT,
                     .samples = samples,
                 }));
             }
+            _hdrTargets.push_back(_resources->createTexture({
+                .name = "HDR " + std::to_string(i),
+                .width = extent.width,
+                .height = extent.height,
+                .format = HDR_FORMAT,
+                .samples = 1,
+                .sampled = true,
+            }));
             _depthTargets.push_back(_resources->createTexture({
                 .name = "Depth " + std::to_string(i),
                 .width = extent.width,
@@ -83,12 +91,16 @@ namespace tr::Rendering::Vulkan {
     }
 
     void VulkanRHI::destroyFrameTargets() {
+        for (const auto handle : _hdrTargets) {
+            _resources->destroyTexture(handle);
+        }
         for (const auto handle : _msaaTargets) {
             _resources->destroyTexture(handle);
         }
         for (const auto handle : _depthTargets) {
             _resources->destroyTexture(handle);
         }
+        _hdrTargets.clear();
         _msaaTargets.clear();
         _depthTargets.clear();
     }
@@ -231,8 +243,9 @@ namespace tr::Rendering::Vulkan {
             .slot = _currentFrame,
             .extent = { extent.width, extent.height },
             .backbuffer = _backbuffers.at(_currentImageIndex),
+            .hdrTarget = _hdrTargets.at(_currentImageIndex),
             .colorTarget = _msaaTargets.empty()
-                ? _backbuffers.at(_currentImageIndex)
+                ? _hdrTargets.at(_currentImageIndex)
                 : _msaaTargets.at(_currentImageIndex),
             .depthTarget = _depthTargets.at(_currentImageIndex),
             .colorFormat = fromVulkanFormat(_swapchain.format()),

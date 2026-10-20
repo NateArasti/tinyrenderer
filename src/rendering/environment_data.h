@@ -7,7 +7,7 @@ namespace tr::Rendering {
         glm::vec3 clearColor;
         float skyboxRotation;
         glm::vec3 skyboxTint;
-        float skyboxExposure;
+        float skyboxIntensity;
 
         glm::vec3 lightDirection;
         float lightIntensity;

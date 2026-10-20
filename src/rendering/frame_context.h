@@ -12,6 +12,7 @@ namespace tr::Rendering {
         uint32_t slot;
         glm::vec2 extent;
         Handle<GPUTexture> backbuffer;
+        Handle<GPUTexture> hdrTarget;
         Handle<GPUTexture> colorTarget;
         Handle<GPUTexture> depthTarget;
         Format colorFormat;

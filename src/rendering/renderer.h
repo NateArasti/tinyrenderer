@@ -14,13 +14,13 @@
 #include "draw_commands.h"
 #include "rendering_structs.h"
 
-namespace tr::Rendering {
-    class RenderGraph;
-    class SkyboxPass;
-    class ShadowPass;
-    class ColorPass;
-    class UIPass;
+#include "skybox_pass.h"
+#include "shadow_pass.h"
+#include "color_pass.h"
+#include "post_processing_pass.h"
+#include "ui_pass.h"
 
+namespace tr::Rendering {
     class Renderer {
     private:
         RHI& _rhi;
@@ -36,20 +36,22 @@ namespace tr::Rendering {
         std::unique_ptr<SkyboxPass> _skyboxPass;
         std::unique_ptr<ShadowPass> _shadowPass;
         std::unique_ptr<ColorPass> _colorPass;
+        std::unique_ptr<PostProcessingPass> _postProcessingPass;
         std::unique_ptr<UIPass> _uiPass;
 
         void updatePipelines(const FrameContext& frame);
         void updateFrameData(
             FrameContext& frame,
-            const Data::Scene& scene,
-            const Data::Camera& camera,
-            const Data::Environment& environment
+            const tr::Data::Scene& scene,
+            const tr::Data::Camera& camera,
+            const tr::Data::Environment& environment
         );
-        void prepareDrawCalls(const Data::Scene& scene, const Data::Camera& camera);
+        void prepareDrawCalls(const tr::Data::Scene& scene, const tr::Data::Camera& camera);
         void setupGraph(
             RenderGraph& graph,
             const FrameContext& frame,
-            const Data::Environment& environment,
+            const tr::Data::Environment& environment,
+            const PostProcessingData& postProcessingData,
             ImDrawData* uiDrawData
         );
         void invalidateSceneCaches();
@@ -66,12 +68,13 @@ namespace tr::Rendering {
         RHI& getInterface() { return _rhi; }
         RenderingResources& getResources() { return _rhi.resources(); }
 
-        void unloadSceneResources(Data::Scene& scene);
+        void unloadSceneResources(tr::Data::Scene& scene);
         void prepareUI();
         void render(
             const tr::Data::Scene& scene,
             const tr::Data::Camera& camera,
             const tr::Data::Environment& env,
+            const tr::Data::PostProcessingData& postProcessingData,
             ImDrawData* uiDrawData
         );
     };

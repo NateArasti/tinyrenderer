@@ -6,7 +6,7 @@ public struct EnvironmentData {
     public float3 clearColor;
     public float rotation;
     public float3 tint;
-    public float exposure;
+    public float intensity;
 
     public float3 lightDirection;
     public float lightIntensity;
