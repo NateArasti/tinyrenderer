@@ -4,114 +4,64 @@
 #include <cstring>
 
 namespace tr::Rendering {
-    namespace {
-        std::vector<std::byte> packMaterialParameters(const Material& material, const Shader& shader) {
-            std::vector<std::byte> bytes;
-            for (const auto& desc : shader.params) {
-                const auto& value = material.get(desc.name, shader);
-                const auto info = shader.getParamTypeInfo(value);
-                if (!info.size) {
-                    continue;
-                }
-                const auto offset = (bytes.size() + info.alignment - 1) & ~(size_t(info.alignment) - 1);
-                bytes.resize(offset + info.size);
-                std::visit(
-                    [&](const auto& parameter) {
-                        using T = std::decay_t<decltype(parameter)>;
-                        if constexpr (!std::is_same_v<T, Handle<Texture>>) {
-                            std::memcpy(bytes.data() + offset, &parameter, sizeof(parameter));
-                        }
-                    },
-                    value);
-            }
-            bytes.resize(std::max(size_t(16), (bytes.size() + 15) & ~size_t(15)));
-            return bytes;
-        }
-    }
-
-    ColorPass::ColorPass(RenderingResources& resources) : RenderPass("Color", resources) {
-        const auto stages = ShaderStages::Vertex | ShaderStages::Fragment;
-        const std::array cameraBindings{
-            BindingLayoutDesc{ 0, BindingType::UniformBuffer, stages },
+    ColorPass::ColorPass(Data::Shader shader, RenderingResources& resources)
+        : RenderPass("Color", resources), _shader(shader)
+    {
+        const std::array sceneBindings{
+            BindingLayoutDesc{ 0, BindingType::UniformBuffer, ShaderStages::Vertex | ShaderStages::Fragment },
             BindingLayoutDesc{ 1, BindingType::CombinedImageSampler, ShaderStages::Fragment },
+            BindingLayoutDesc{ 2, BindingType::StorageBuffer, ShaderStages::Vertex | ShaderStages::Fragment },
         };
-        _cameraLayout = resources.createBindingLayout(cameraBindings);
+        _sceneLayout = resources.createBindingLayout(sceneBindings);
         const std::array environmentBindings{
-            BindingLayoutDesc{ 0, BindingType::UniformBuffer, stages },
+            BindingLayoutDesc{ 0, BindingType::UniformBuffer, ShaderStages::Vertex | ShaderStages::Fragment },
             BindingLayoutDesc{ 1, BindingType::CombinedImageSampler, ShaderStages::Fragment },
             BindingLayoutDesc{ 2, BindingType::CombinedImageSampler, ShaderStages::Fragment },
             BindingLayoutDesc{ 3, BindingType::CombinedImageSampler, ShaderStages::Fragment },
         };
         _environmentLayout = resources.createBindingLayout(environmentBindings);
-        std::vector<BindingLayoutDesc> materialBindings{ { 0, BindingType::UniformBuffer, stages } };
-        for (const auto& param : _shader.params) {
-            if (_shader.isTextureParam(param.defaultValue)) {
-                materialBindings.push_back({
-                    .binding = static_cast<uint32_t>(materialBindings.size()),
-                    .type = BindingType::CombinedImageSampler,
-                    .stages = ShaderStages::Fragment
-                });
-            }
-        }
-        _materialLayout = resources.createBindingLayout(materialBindings);
-        _pipelineLayout = resources.createPipelineLayout({
-            .sets = { _cameraLayout, _materialLayout, _environmentLayout },
-            .pushConstants = { { ShaderStages::Vertex, 0, sizeof(glm::mat4) } },
-        });
+
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            _cameraSets[i] = resources.createBindingSet(_cameraLayout);
+            _sceneSets[i] = resources.createBindingSet(_sceneLayout);
             _environmentSets[i] = resources.createBindingSet(_environmentLayout);
         }
+
+        std::vector<BindingLayoutDesc> materialBindings{
+            { 0, BindingType::StorageBuffer, ShaderStages::Vertex | ShaderStages::Fragment },
+            { 1, BindingType::CombinedImageSampler, ShaderStages::Fragment, MAX_TEXTURES },
+        };
+        _materialLayout = resources.createBindingLayout(materialBindings);
+        _materialSet = resources.createBindingSet(_materialLayout);
+
+        _pipelineLayout = resources.createPipelineLayout({
+            .sets = { _sceneLayout, _materialLayout, _environmentLayout },
+        });
     }
 
     ColorPass::~ColorPass() {
-        clearMaterials();
         _resources.destroyPipeline(_opaquePipeline);
         _resources.destroyPipeline(_transparentPipeline);
         _resources.destroyPipelineLayout(_pipelineLayout);
-        for (auto set : _cameraSets) {
+        for (auto set : _sceneSets) {
             _resources.destroyBindingSet(set);
         }
         for (auto set : _environmentSets) {
             _resources.destroyBindingSet(set);
         }
-        _resources.destroyBindingLayout(_cameraLayout);
-        _resources.destroyBindingLayout(_environmentLayout);
+        _resources.destroyBindingSet(_materialSet);
+        _resources.destroyBindingLayout(_sceneLayout);
         _resources.destroyBindingLayout(_materialLayout);
+        _resources.destroyBindingLayout(_environmentLayout);
     }
 
-    void ColorPass::clearMaterials() {
-        for (const auto& [handle, material] : _materials) {
-            _resources.destroyBindingSet(material.set);
-            _resources.destroyBuffer(material.buffer);
-        }
-        _materials.clear();
-    }
-
-    Handle<BindingSet> ColorPass::materialBindings(Handle<Material> handle) {
-        if (auto found = _materials.find(handle); found != _materials.end()) {
-            return found->second.set;
-        }
-
-        const auto& material = _resources.material(handle);
-        const auto bytes = packMaterialParameters(material, _shader);
-        MaterialBindings bindings{
-            .set = _resources.createBindingSet(_materialLayout),
-            .buffer = _resources.createBuffer({ bytes, BufferUsageFlags::UniformBuffer }),
+    void ColorPass::setMaterialTable(Handle<GPUBuffer> materials, std::span<const Handle<GPUTexture>> textures) {
+        std::vector<BindingDesc> materialsBindings{
+            BindingDesc{ 0, BufferBinding{ materials, BindingType::StorageBuffer } },
         };
-        std::vector<BindingDesc> descriptors{ { 0, BufferBinding{ bindings.buffer } } };
-        for (const auto& desc : _shader.params) {
-            const auto& value = material.get(desc.name, _shader);
-            if (const auto* texture = std::get_if<Handle<Texture>>(&value)) {
-                descriptors.push_back({
-                    static_cast<uint32_t>(descriptors.size()),
-                    ImageSamplerBinding{ _resources.texture(*texture) },
-                });
-            }
+        for (uint32_t i = 0; i < MAX_TEXTURES; ++i) {
+            materialsBindings.push_back(BindingDesc{ 1, ImageSamplerBinding{ textures[i] }, i });
         }
-        _resources.updateBindingSet(bindings.set, descriptors);
-        _materials.emplace(handle, bindings);
-        return bindings.set;
+        _resources.updateBindingSet(_materialSet, materialsBindings);
     }
 
     void ColorPass::createPipelines(Format colorFormat, Format depthFormat, uint32_t samples) {
@@ -154,17 +104,18 @@ namespace tr::Rendering {
     }
 
     void ColorPass::updateBindings(RenderGraphContext& context, const FrameContext& frame) {
-        const std::array cameraBindings{
-            BindingDesc{ 0, BufferBinding{ frame.cameraDataBuffer } },
+        const std::array sceneBindings{
+            BindingDesc{ 0, BufferBinding{ frame.cameraDataBuffer, BindingType::UniformBuffer } },
             BindingDesc{ 1, ImageSamplerBinding{ context.texture(shadow) } },
+            BindingDesc{ 2, BufferBinding{ frame.instanceBuffer, BindingType::StorageBuffer } },
         };
         const std::array environmentBindings{
-            BindingDesc{ 0, BufferBinding{ frame.environmentDataBuffer } },
+            BindingDesc{ 0, BufferBinding{ frame.environmentDataBuffer, BindingType::UniformBuffer } },
             BindingDesc{ 1, ImageSamplerBinding{ context.texture(irradiance) } },
             BindingDesc{ 2, ImageSamplerBinding{ context.texture(prefiltered) } },
             BindingDesc{ 3, ImageSamplerBinding{ context.texture(brdf) } },
         };
-        _resources.updateBindingSet(_cameraSets[frame.slot], cameraBindings);
+        _resources.updateBindingSet(_sceneSets[frame.slot], sceneBindings);
         _resources.updateBindingSet(_environmentSets[frame.slot], environmentBindings);
     }
 
@@ -175,21 +126,16 @@ namespace tr::Rendering {
         Handle<Pipeline> pipeline
     ) {
         cmd.bindPipeline(pipeline);
-        cmd.bindBindings(0, _cameraSets[frame.slot]);
+        cmd.bindBindings(0, _sceneSets[frame.slot]);
+        cmd.bindBindings(1, _materialSet);
         cmd.bindBindings(2, _environmentSets[frame.slot]);
         for (const auto& draw : draws) {
             const auto& mesh = _resources.mesh(draw.mesh);
             const auto& submesh = mesh.subMeshes.at(draw.subMeshIndex);
             cmd.bindVertexBuffer(mesh.vertices);
             cmd.bindIndexBuffer(mesh.indices);
-            cmd.setFrontFace(
-                glm::determinant(glm::mat3(draw.modelMatrix)) < 0.0f
-                ? WindingOrder::Clockwise
-                : WindingOrder::CounterClockwise
-            );
-            cmd.bindBindings(1, materialBindings(draw.material));
-            cmd.pushConstants({ ShaderStages::Vertex, 0, sizeof(glm::mat4) }, &draw.modelMatrix);
-            cmd.drawIndexed(submesh.indexCount, submesh.firstIndex, 0);
+            cmd.setFrontFace(WindingOrder::CounterClockwise);
+            cmd.drawIndexed(submesh.indexCount, submesh.firstIndex, 0, draw.firstInstance, draw.instanceCount);
         }
     }
 

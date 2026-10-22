@@ -31,6 +31,12 @@ namespace tr::Rendering {
         virtual void bindIndexBuffer(Handle<GPUBuffer> buffer) = 0;
 
         virtual void draw(uint32_t vertexCount, uint32_t firstVertex) = 0;
-        virtual void drawIndexed(uint32_t indexCount, uint32_t firstIndex, int32_t vertexOffset) = 0;
+        virtual void drawIndexed(
+            uint32_t indexCount,
+            uint32_t firstIndex,
+            int32_t vertexOffset,
+            uint32_t firstInstance,
+            uint32_t instanceCount
+        ) = 0;
     };
 }

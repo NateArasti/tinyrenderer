@@ -111,13 +111,13 @@ namespace tr::Loading {
             return texture->file_textures.count > 0 ? texture->file_textures.data[0] : nullptr;
         }
 
-        Handle<Texture> loadTexture(
+        uint32_t loadTexture(
             Rendering::RenderingResources& resources,
             Scene& scene,
             const std::filesystem::path& modelDirectory,
             const ufbx_texture* sourceTexture,
             TextureColorSpace colorSpace,
-            std::unordered_map<std::string, Handle<Texture>>& cache
+            std::unordered_map<std::string, uint32_t>& cache
         ) {
             sourceTexture = getFileTexture(sourceTexture);
             if (!sourceTexture) {
@@ -211,8 +211,9 @@ namespace tr::Loading {
 
             const auto handle = resources.uploadTexture(texture);
             scene.own(handle);
-            cache.emplace(cacheKey, handle);
-            return handle;
+            const auto index = static_cast<uint32_t>(scene.ownedTextures.size());
+            cache.emplace(cacheKey, index);
+            return index;
         }
 
         float mapReal(const ufbx_material_map& map, float fallback) {
@@ -243,7 +244,7 @@ namespace tr::Loading {
             const ufbx_scene& sourceScene
         ) {
             std::unordered_map<const ufbx_material*, Handle<Material>> result;
-            std::unordered_map<std::string, Handle<Texture>> textureCache;
+            std::unordered_map<std::string, uint32_t> textureCache;
 
             for (const ufbx_material* source : sourceScene.materials) {
                 const auto& pbr = source->pbr;
@@ -284,13 +285,12 @@ namespace tr::Loading {
                 const auto setTexture = [&](
                     const ufbx_material_map& map,
                     std::string_view mapParam,
-                    std::string_view flagParam,
                     TextureColorSpace colorSpace
                 ) {
                     if (!map.texture_enabled) {
                         return;
                     }
-                    const auto texture = loadTexture(
+                    const auto index = loadTexture(
                         resources,
                         scene,
                         modelDirectory,
@@ -298,52 +298,42 @@ namespace tr::Loading {
                         colorSpace,
                         textureCache
                     );
-                    if (texture.isValid()) {
-                        material.set(std::string(mapParam), texture);
-                        material.set(std::string(flagParam), 1.0f);
-                    }
+                    material.set(std::string(mapParam), index);
                 };
 
                 setTexture(
                     pbr.base_color,
                     "diffuseMap",
-                    "hasDiffuseMap",
                     TextureColorSpace::SRGB
                 );
                 setTexture(
                     pbr.emission_color,
                     "emissionMap",
-                    "hasEmissionMap",
                     TextureColorSpace::SRGB
                 );
                 setTexture(
                     pbr.normal_map,
                     "normalMap",
-                    "hasNormalMap",
                     TextureColorSpace::Linear
                 );
                 setTexture(
                     pbr.metalness,
                     "metallicMap",
-                    "hasMetallicMap",
                     TextureColorSpace::Linear
                 );
                 setTexture(
                     pbr.roughness,
                     "roughnessMap",
-                    "hasRoughnessMap",
                     TextureColorSpace::Linear
                 );
                 setTexture(
                     pbr.specular_color,
                     "specularMap",
-                    "hasSpecularMap",
                     TextureColorSpace::SRGB
                 );
                 setTexture(
                     pbr.opacity,
                     "opacityMap",
-                    "hasOpacityMap",
                     TextureColorSpace::Linear
                 );
 

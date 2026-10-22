@@ -22,5 +22,6 @@ namespace tr::Rendering {
         Handle<GPUBuffer> cameraDataBuffer;
         EnvironmentData environmentData;
         Handle<GPUBuffer> environmentDataBuffer;
+        Handle<GPUBuffer> instanceBuffer;
     };
 }

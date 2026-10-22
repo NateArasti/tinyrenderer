@@ -20,10 +20,15 @@
 #include "post_processing_pass.h"
 #include "ui_pass.h"
 
+#include "pbr.h"
+
+using namespace tr::Data;
+
 namespace tr::Rendering {
     class Renderer {
     private:
         RHI& _rhi;
+
         std::vector<DrawCommand> _opaqueDrawQueue;
         std::vector<DrawCommand> _transparentDrawQueue;
 
@@ -32,6 +37,12 @@ namespace tr::Rendering {
 
         Format _colorFormat = Undefined;
         uint32_t _samples = 0;
+
+        Data::EmbeddedShaders::Pbr _mainShader;
+
+        Handle<GPUBuffer> _instanceBuffer;
+        Handle<GPUBuffer> _materialsTableBuffer;
+        std::array<Handle<GPUTexture>, MAX_TEXTURES> _texturesTable;
 
         std::unique_ptr<SkyboxPass> _skyboxPass;
         std::unique_ptr<ShadowPass> _shadowPass;
@@ -46,7 +57,7 @@ namespace tr::Rendering {
             const tr::Data::Camera& camera,
             const tr::Data::Environment& environment
         );
-        void prepareDrawCalls(const tr::Data::Scene& scene, const tr::Data::Camera& camera);
+        void sortTransparentQueue(const tr::Data::Scene& scene, const tr::Data::Camera& camera);
         void setupGraph(
             RenderGraph& graph,
             const FrameContext& frame,
@@ -54,7 +65,6 @@ namespace tr::Rendering {
             const PostProcessingData& postProcessingData,
             ImDrawData* uiDrawData
         );
-        void invalidateSceneCaches();
 
     public:
         explicit Renderer(RHI& rhi);
@@ -68,7 +78,9 @@ namespace tr::Rendering {
         RHI& getInterface() { return _rhi; }
         RenderingResources& getResources() { return _rhi.resources(); }
 
+        void prepareScene(tr::Data::Scene& scene);
         void unloadSceneResources(tr::Data::Scene& scene);
+        void updateSceneMatrix(tr::Data::Scene& scene);
         void prepareUI();
         void render(
             const tr::Data::Scene& scene,

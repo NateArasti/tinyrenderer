@@ -15,20 +15,13 @@ namespace tr::Data::EmbeddedShaders {
             { "metallicFactor", 0.0f },
             { "roughnessFactor", 1.0f },
             { "normalScale", 1.0f },
-            { "hasDiffuseMap", 0.0f },
-            { "hasEmissionMap", 0.0f },
-            { "hasNormalMap", 0.0f },
-            { "hasMetallicMap", 0.0f },
-            { "hasRoughnessMap", 0.0f },
-            { "hasSpecularMap", 0.0f },
-            { "hasOpacityMap", 0.0f },
-            { "diffuseMap", Data::Handle<Texture>{} },
-            { "emissionMap", Data::Handle<Texture>{} },
-            { "normalMap", Data::Handle<Texture>{} },
-            { "metallicMap", Data::Handle<Texture>{} },
-            { "roughnessMap", Data::Handle<Texture>{} },
-            { "specularMap", Data::Handle<Texture>{} },
-            { "opacityMap", Data::Handle<Texture>{} }
+            { "diffuseMap", 0u },
+            { "emissionMap", 0u },
+            { "normalMap", 0u },
+            { "metallicMap", 0u },
+            { "roughnessMap", 0u },
+            { "specularMap", 0u },
+            { "opacityMap", 0u }
         };
     }
 }

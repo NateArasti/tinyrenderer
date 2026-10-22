@@ -82,7 +82,7 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [x] Skybox Import
   - [x] Render Graph
   - [x] Image-based lighting
-  - [ ] Instanced Rendering
+  - [x] Instanced Rendering
   - [ ] Procedural default skybox
   - [ ] Cel-Shading
   - [ ] Surface Dithering

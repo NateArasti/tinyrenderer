@@ -14,6 +14,7 @@
 
 namespace tr::Data {
     using ShaderParamValue = std::variant<
+        uint32_t,
         float,
         glm::vec2,
         glm::vec3,
@@ -75,6 +76,8 @@ namespace tr::Data {
             return std::visit([](auto&& val) -> TypeInfo {
                 using T = std::decay_t<decltype(val)>;
                 if constexpr (std::is_same_v<T, float>) return { 4,  4 };
+                if constexpr (std::is_same_v<T, int32_t>) return { 4,  4 };
+                if constexpr (std::is_same_v<T, uint32_t>) return { 4,  4 };
                 if constexpr (std::is_same_v<T, glm::vec2>) return { 8,  8 };
                 if constexpr (std::is_same_v<T, glm::vec3>) return { 12, 16 };
                 if constexpr (std::is_same_v<T, glm::vec4>) return { 16, 16 };

@@ -1,13 +1,28 @@
+import shared_structs;
 import light;
 import environment;
-import camera_data;
-import math;
+import math; 
 
-struct PushConstants {
-    float4x4 model;
+static const uint MAX_TEXTURES = 2048;
+
+public struct VSInput {
+    float3 position : POSITION;
+    float3 normal : NORMAL;
+    float2 uv : TEXCOORD0;
+    float4 color : COLOR;
 };
 
-struct UniformParams {
+public struct VSOutput {
+    float4 position : SV_Position;
+    float3 worldPos : POSITION;
+    float3 normal : NORMAL;
+    float2 uv : TEXCOORD0;
+    float4 color : COLOR; 
+    
+    nointerpolation uint materialIndex : MATERIAL_INDEX;
+};
+
+struct MaterialData {
     float4 diffuseColor = float4(1, 1, 1, 1);
     float4 ambientColor;
     float4 emissionColor;
@@ -15,49 +30,29 @@ struct UniformParams {
     float metallicFactor = 0;
     float roughnessFactor = 1;
     float normalScale = 1;
-    float hasDiffuseMap = 0;
-    float hasEmissionMap = 0;
-    float hasNormalMap = 0;
-    float hasMetallicMap = 0;
-    float hasRoughnessMap = 0;
-    float hasSpecularMap = 0;
-    float hasOpacityMap = 0;
+
+    uint diffuseMap = 0;
+    uint emissionMap = 0;
+    uint normalMap = 0;
+    uint metallicMap = 0;
+    uint roughnessMap = 0;
+    uint specularMap = 0;
+    uint opacityMap = 0;
 };
 
-[[vk::push_constant]] PushConstants pcs;
 [[vk::binding(0, 0)]] ConstantBuffer<CameraData> cameraData;
 [[vk::binding(1, 0)]] Sampler2D shadowMap;
+[[vk::binding(2, 0)]] StructuredBuffer<InstanceData> instances;
 
-[[vk::binding(0, 1)]] ConstantBuffer<UniformParams> params;
-[[vk::binding(1, 1)]] Sampler2D diffuseMap;
-[[vk::binding(2, 1)]] Sampler2D emissionMap;
-[[vk::binding(3, 1)]] Sampler2D normalMap;
-[[vk::binding(4, 1)]] Sampler2D metallicMap;
-[[vk::binding(5, 1)]] Sampler2D roughnessMap;
-[[vk::binding(6, 1)]] Sampler2D specularMap;
-[[vk::binding(7, 1)]] Sampler2D opacityMap;
+[[vk::binding(0, 1)]] StructuredBuffer<MaterialData> materials;
+[[vk::binding(1, 1)]] Sampler2D textures[MAX_TEXTURES];
 
 [[vk::binding(0, 2)]] ConstantBuffer<EnvironmentData> environmentData;
 [[vk::binding(1, 2)]] SamplerCube irradianceMap;
 [[vk::binding(2, 2)]] SamplerCube prefilterMap;
 [[vk::binding(3, 2)]] Sampler2D brdfLUT;
 
-struct VSInput {
-    float3 position : POSITION;
-    float3 normal : NORMAL;
-    float2 uv : TEXCOORD0;
-    float4 color : COLOR;
-};
-
-struct VSOutput {
-    float4 position : SV_Position; 
-    float3 worldPos : POSITION;
-    float3 normal : NORMAL;
-    float2 uv : TEXCOORD0;
-    float4 color : COLOR;
-};
-
-float3 applyNormalMap(float3 normal, float3 worldPos, float2 uv) {
+float3 applyNormalMap(float3 normal, float3 textureNormal, float3 worldPos, float2 uv, float normalScale) {
     float3 positionDx = ddx(worldPos);
     float3 positionDy = ddy(worldPos);
     float2 uvDx = ddx(uv);
@@ -71,8 +66,8 @@ float3 applyNormalMap(float3 normal, float3 worldPos, float2 uv) {
     }
 
     float inverseLength = rsqrt(maxLength);
-    float3 tangentNormal = normalMap.Sample(uv).xyz * 2.0 - 1.0;
-    tangentNormal.xy *= params.normalScale;
+    float3 tangentNormal = textureNormal * 2.0 - 1.0;
+    tangentNormal.xy *= normalScale;
     float3x3 tangentBasis = float3x3(
         tangent * inverseLength,
         bitangent * inverseLength,
@@ -82,13 +77,15 @@ float3 applyNormalMap(float3 normal, float3 worldPos, float2 uv) {
 }
 
 [shader("vertex")]
-VSOutput vertMain(VSInput input) {
+VSOutput vertMain(VSInput input, uint instanceIndex: SV_VulkanInstanceID) {
     VSOutput output;
-    float4 worldPos = mul(pcs.model, float4(input.position, 1.0));
+    InstanceData instance = instances[instanceIndex];
+    float4 worldPos = mul(instance.model, float4(input.position, 1.0));
 
-    output.position = mul(cameraData.proj, mul(cameraData.view, worldPos));
     output.worldPos = worldPos.xyz;
-    output.normal = normalize(mul((float3x3)pcs.model, input.normal));
+    output.position = mul(cameraData.proj, mul(cameraData.view, worldPos));
+    output.materialIndex = instance.materialIndex;
+    output.normal = normalize(mul((float3x3)instance.normal, input.normal));
     output.uv = input.uv;
     output.color = input.color;
     
@@ -97,35 +94,38 @@ VSOutput vertMain(VSInput input) {
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
-    float4 baseColor = vertIn.color * params.diffuseColor;
-    if (params.hasDiffuseMap > 0.5) {
-        baseColor *= diffuseMap.Sample(vertIn.uv);
+    MaterialData material = materials[vertIn.materialIndex];
+
+    float4 baseColor = vertIn.color * material.diffuseColor;
+    if (material.diffuseMap > 0.5) {
+        baseColor *= textures[NonUniformResourceIndex(material.diffuseMap)].Sample(vertIn.uv);
     }
-    if (params.hasOpacityMap > 0.5) {
-        baseColor.a *= opacityMap.Sample(vertIn.uv).r;
+    if (material.opacityMap > 0.5) {
+        baseColor.a *= textures[NonUniformResourceIndex(material.opacityMap)].Sample(vertIn.uv).r;
     }
 
-    float metallic = params.metallicFactor;
-    if (params.hasMetallicMap > 0.5) {
-        metallic *= metallicMap.Sample(vertIn.uv).r;
+    float metallic = material.metallicFactor;
+    if (material.metallicMap > 0.5) {
+        metallic *= textures[NonUniformResourceIndex(material.metallicMap)].Sample(vertIn.uv).r;
     }
     metallic = saturate(metallic);
 
-    float roughness = params.roughnessFactor;
-    if (params.hasRoughnessMap > 0.5) {
-        roughness *= roughnessMap.Sample(vertIn.uv).r;
+    float roughness = material.roughnessFactor;
+    if (material.roughnessMap > 0.5) {
+        roughness *= textures[NonUniformResourceIndex(material.roughnessMap)].Sample(vertIn.uv).r;
     }
     roughness = clamp(roughness, 0.04, 1.0);
 
-    float3 F0 = params.specularColor.rgb;
-    if (params.hasSpecularMap > 0.5) {
-        F0 = specularMap.Sample(vertIn.uv).rgb;
+    float3 F0 = material.specularColor.rgb;
+    if (material.specularMap > 0) {
+        F0 = textures[NonUniformResourceIndex(material.specularMap)].Sample(vertIn.uv).rgb;
     }
     F0 = lerp(F0, baseColor.rgb, metallic);
 
     float3 N = normalize(vertIn.normal);
-    if (params.hasNormalMap > 0.5) {
-        N = applyNormalMap(N, vertIn.worldPos, vertIn.uv);
+    if (material.normalMap > 0.5) {
+        float3 normal = textures[NonUniformResourceIndex(material.normalMap)].Sample(vertIn.uv).rgb;
+        N = applyNormalMap(N, normal, vertIn.worldPos, vertIn.uv, material.normalScale);
     }
 
     float3 Lo = float3(0);
@@ -175,9 +175,9 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
     float3 specularIBL = prefiltered * (F0 * brdf.x + brdf.y);
     float3 ambient = diffuseIBL + specularIBL;
 
-    float3 emission = params.emissionColor.rgb;
-    if (params.hasEmissionMap > 0.5) {
-        emission *= emissionMap.Sample(vertIn.uv).rgb;
+    float3 emission = material.emissionColor.rgb;
+    if (material.emissionMap > 0) {
+        emission *= textures[NonUniformResourceIndex(material.emissionMap)].Sample(vertIn.uv).rgb;
     }
 
     float3 color = ambient + Lo + emission;

@@ -15,6 +15,7 @@ namespace tr::Rendering::Vulkan {
     TextureAccess toVulkanTextureState(TextureState state);
     vk::Format toVulkanFormat(Format format);
     Format fromVulkanFormat(vk::Format format);
+    vk::DescriptorType toVulkanBindingType(BindingType bindingType);
     vk::ShaderStageFlags toVulkanStages(ShaderStages stages);
     vk::CompareOp toVulkanCompareOp(CompareOp compareOp);
     vk::CullModeFlags toVulkanCullMode(Data::CullMode cullMode);

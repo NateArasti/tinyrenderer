@@ -1,10 +1,13 @@
 #include "vulkan_descriptor_allocator.h"
 
+#include "defines.h"
+
 namespace tr::Rendering::Vulkan {
     void VulkanDescriptorAllocator::createPool() {
         const std::array sizes{
             vk::DescriptorPoolSize{ vk::DescriptorType::eUniformBuffer, _nextPoolSize },
-            vk::DescriptorPoolSize{ vk::DescriptorType::eCombinedImageSampler, _nextPoolSize * 4 },
+            vk::DescriptorPoolSize{ vk::DescriptorType::eStorageBuffer, _nextPoolSize },
+            vk::DescriptorPoolSize{ vk::DescriptorType::eCombinedImageSampler, MAX_TEXTURES + _nextPoolSize * 4 },
         };
         _pools.push_back({
             .handle = vk::raii::DescriptorPool(_device, {

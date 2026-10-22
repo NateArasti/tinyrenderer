@@ -9,11 +9,8 @@ namespace tr::Rendering::Vulkan {
         for (const auto& binding : bindings) {
             native.push_back({
                 .binding = binding.binding,
-                .descriptorType =
-                    binding.type == BindingType::UniformBuffer
-                    ? vk::DescriptorType::eUniformBuffer
-                    : vk::DescriptorType::eCombinedImageSampler,
-                .descriptorCount = 1,
+                .descriptorType = toVulkanBindingType(binding.type),
+                .descriptorCount = binding.count,
                 .stageFlags = toVulkanStages(binding.stages),
             });
         }
@@ -56,6 +53,7 @@ namespace tr::Rendering::Vulkan {
             vk::WriteDescriptorSet write{
                 .dstSet = bindingSet(set),
                 .dstBinding = binding.binding,
+                .dstArrayElement = binding.arrayElement,
                 .descriptorCount = 1,
             };
             if (const auto* value = std::get_if<BufferBinding>(&binding.resource)) {
@@ -64,7 +62,7 @@ namespace tr::Rendering::Vulkan {
                     .buffer = *buffer.buffer,
                     .range = buffer.size,
                 };
-                write.descriptorType = vk::DescriptorType::eUniformBuffer;
+                write.descriptorType = toVulkanBindingType(value->type);
                 write.pBufferInfo = &bufferInfo;
             }
             else {

@@ -32,16 +32,24 @@ function(add_embedded_shader_code shader_name class_name header_file)
     set(EMBEDDED_SHADER_CODE_FILES ${EMBEDDED_SHADER_CODE_FILES} "${code_file}" PARENT_SCOPE)
 endfunction()
 
-add_embedded_shader_code(pbr Pbr pbr.h 
+add_embedded_shader_code(
+    pbr 
+    Pbr 
+    pbr.h 
+
     "${SHADER_SOURCE_DIR}/light.slang"
     "${SHADER_SOURCE_DIR}/environment.slang"
-    "${SHADER_SOURCE_DIR}/camera_data.slang"
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
     "${SHADER_SOURCE_DIR}/math.slang"
 )
-add_embedded_shader_code(shadow Shadow shadow.h)
+add_embedded_shader_code(
+    shadow Shadow shadow.h
+
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
+)
 add_embedded_shader_code(skybox Skybox skybox.h 
     "${SHADER_SOURCE_DIR}/environment.slang"
-    "${SHADER_SOURCE_DIR}/camera_data.slang"
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
 )
 add_embedded_shader_code(
     equirectangular_conversion

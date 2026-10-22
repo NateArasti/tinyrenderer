@@ -74,13 +74,15 @@ namespace tr::Rendering::Vulkan {
                 <
                 vk::PhysicalDeviceFeatures2,
                 vk::PhysicalDeviceVulkan13Features,
-                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
+                vk::PhysicalDeviceDescriptorIndexingFeatures
                 >();
             bool supportsRequiredFeatures =
                 features.template get<vk::PhysicalDeviceFeatures2>().features.samplerAnisotropy &&
                 features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
                 features.template get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
-                features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+                features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState &&
+                features.template get<vk::PhysicalDeviceDescriptorIndexingFeatures>().shaderSampledImageArrayNonUniformIndexing;
 
             if (!supportsRequiredFeatures) {
                 return false;
@@ -306,19 +308,23 @@ namespace tr::Rendering::Vulkan {
         vk::StructureChain<
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceVulkan13Features,
-            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
+            vk::PhysicalDeviceDescriptorIndexingFeatures
         > featureChain = {
-                {
+                vk::PhysicalDeviceFeatures2{
                     .features = {
                         .samplerAnisotropy = true
                     }
                 },
-                {
+                vk::PhysicalDeviceVulkan13Features{
                     .synchronization2 = true,
                     .dynamicRendering = true
                 },
-                {
+                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{
                     .extendedDynamicState = true
+                },
+                vk::PhysicalDeviceDescriptorIndexingFeatures{
+                    .shaderSampledImageArrayNonUniformIndexing = true,
                 }
         };
 

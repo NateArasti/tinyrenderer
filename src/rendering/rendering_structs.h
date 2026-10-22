@@ -56,6 +56,7 @@ namespace tr::Rendering {
         IndexBuffer = 4,
         TransferSrc = 8,
         TransferDst = 16,
+        Storage = 32,
     };
 
     struct BufferDesc {
@@ -67,6 +68,7 @@ namespace tr::Rendering {
 
     enum class BindingType {
         UniformBuffer,
+        StorageBuffer,
         CombinedImageSampler
     };
 
@@ -83,12 +85,14 @@ namespace tr::Rendering {
         uint32_t binding;
         BindingType type;
         ShaderStages stages;
+        uint32_t count = 1;
     };
 
     struct BindingLayout {};
 
     struct BufferBinding {
         Handle<GPUBuffer> buffer;
+        BindingType type;
     };
 
     struct ImageSamplerBinding {
@@ -98,6 +102,7 @@ namespace tr::Rendering {
     struct BindingDesc {
         uint32_t binding;
         std::variant<BufferBinding, ImageSamplerBinding> resource;
+        uint32_t arrayElement;
     };
 
     struct BindingSet {};

@@ -172,7 +172,13 @@ namespace tr::Rendering::Vulkan {
         _commandBuffer->draw(vertexCount, 1, firstVertex, 0);
     }
 
-    void VulkanCommandBuffer::drawIndexed(uint32_t indexCount, uint32_t firstIndex, int32_t vertexOffset) {
-        _commandBuffer->drawIndexed(indexCount, 1, firstIndex, vertexOffset, 0);
+    void VulkanCommandBuffer::drawIndexed(
+        uint32_t indexCount,
+        uint32_t firstIndex,
+        int32_t vertexOffset,
+        uint32_t firstInstance,
+        uint32_t instanceCount
+    ) {
+        _commandBuffer->drawIndexed(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance);
     }
 }

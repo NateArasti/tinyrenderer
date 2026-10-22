@@ -78,6 +78,18 @@ namespace tr::Rendering::Vulkan {
         return result;
     }
 
+    vk::DescriptorType toVulkanBindingType(BindingType bindingType) {
+        switch (bindingType) {
+        case BindingType::UniformBuffer:
+            return vk::DescriptorType::eUniformBuffer;
+        case BindingType::StorageBuffer:
+            return vk::DescriptorType::eStorageBuffer;
+        case BindingType::CombinedImageSampler:
+            return vk::DescriptorType::eCombinedImageSampler;
+        }
+        throw std::invalid_argument("Unsupported binding type");
+    }
+
     vk::CompareOp toVulkanCompareOp(CompareOp compareOp) {
         switch (compareOp) {
             case CompareOp::Always:
@@ -130,6 +142,9 @@ namespace tr::Rendering::Vulkan {
         }
         if (usage & BufferUsageFlags::TransferDst) {
             flags |= vk::BufferUsageFlagBits::eTransferDst;
+        }
+        if (usage & BufferUsageFlags::Storage) {
+            flags |= vk::BufferUsageFlagBits::eStorageBuffer;
         }
         return flags;
     }

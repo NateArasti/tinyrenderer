@@ -84,14 +84,14 @@ namespace tr::Loading {
             return {};
         }
 
-        Handle<Texture> loadTexture(
+        uint32_t loadTexture(
             Rendering::RenderingResources& resources,
             Scene& scene,
             const fastgltf::Asset& asset,
             size_t textureIndex,
             TextureColorSpace colorSpace,
             TextureChannel channel,
-            std::unordered_map<std::string, Handle<Texture>>& cache
+            std::unordered_map<std::string, uint32_t>& cache
         ) {
             if (textureIndex >= asset.textures.size()) {
                 return {};
@@ -162,8 +162,9 @@ namespace tr::Loading {
 
             const auto handle = resources.uploadTexture(texture);
             scene.own(handle);
-            cache.emplace(cacheKey, handle);
-            return handle;
+            const auto index = static_cast<uint32_t>(scene.ownedTextures.size());
+            cache.emplace(cacheKey, index);
+            return index;
         }
 
         Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
@@ -184,7 +185,7 @@ namespace tr::Loading {
         ) {
             std::vector<Handle<Material>> result;
             result.reserve(asset.materials.size());
-            std::unordered_map<std::string, Handle<Texture>> textureCache;
+            std::unordered_map<std::string, uint32_t> textureCache;
 
             for (const auto& source : asset.materials) {
                 Material material;
@@ -211,11 +212,10 @@ namespace tr::Loading {
                 const auto setTexture = [&](
                     size_t textureIndex,
                     std::string_view mapParam,
-                    std::string_view flagParam,
                     TextureColorSpace colorSpace,
                     TextureChannel channel = TextureChannel::All
                 ) {
-                    const auto texture = loadTexture(
+                    const auto index = loadTexture(
                         resources,
                         scene,
                         asset,
@@ -224,17 +224,13 @@ namespace tr::Loading {
                         channel,
                         textureCache
                     );
-                    if (texture.isValid()) {
-                        material.set(std::string(mapParam), texture);
-                        material.set(std::string(flagParam), 1.0f);
-                    }
+                    material.set(std::string(mapParam), index);
                 };
 
                 if (source.pbrData.baseColorTexture) {
                     setTexture(
                         source.pbrData.baseColorTexture->textureIndex,
                         "diffuseMap",
-                        "hasDiffuseMap",
                         TextureColorSpace::SRGB
                     );
                 }
@@ -242,7 +238,6 @@ namespace tr::Loading {
                     setTexture(
                         source.emissiveTexture->textureIndex,
                         "emissionMap",
-                        "hasEmissionMap",
                         TextureColorSpace::SRGB
                     );
                 }
@@ -250,7 +245,6 @@ namespace tr::Loading {
                     setTexture(
                         source.normalTexture->textureIndex,
                         "normalMap",
-                        "hasNormalMap",
                         TextureColorSpace::Linear
                     );
                     material.set("normalScale", static_cast<float>(source.normalTexture->scale));
@@ -260,14 +254,12 @@ namespace tr::Loading {
                     setTexture(
                         textureIndex,
                         "metallicMap",
-                        "hasMetallicMap",
                         TextureColorSpace::Linear,
                         TextureChannel::Blue
                     );
                     setTexture(
                         textureIndex,
                         "roughnessMap",
-                        "hasRoughnessMap",
                         TextureColorSpace::Linear,
                         TextureChannel::Green
                     );

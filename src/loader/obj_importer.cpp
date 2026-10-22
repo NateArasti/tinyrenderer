@@ -69,13 +69,13 @@ namespace tr::Loading {
             );
         }
 
-        Handle<Texture> loadTexture(
+        uint32_t loadTexture(
             Rendering::RenderingResources& resources,
             Scene& scene,
             const std::filesystem::path& modelDirectory,
             std::string_view textureName,
             TextureColorSpace colorSpace,
-            std::unordered_map<std::string, Handle<Texture>>& cache
+            std::unordered_map<std::string, uint32_t>& cache
         ) {
             if (textureName.empty()) {
                 return {};
@@ -151,8 +151,9 @@ namespace tr::Loading {
 
             const auto handle = resources.uploadTexture(texture);
             scene.own(handle);
-            cache.emplace(std::move(cacheKey), handle);
-            return handle;
+            const auto index = static_cast<uint32_t>(scene.ownedTextures.size());
+            cache.emplace(std::move(cacheKey), index);
+            return index;
         }
 
         Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
@@ -172,7 +173,7 @@ namespace tr::Loading {
         ) {
             std::vector<Handle<Material>> materials;
             materials.reserve(sourceMaterials.size());
-            std::unordered_map<std::string, Handle<Texture>> textureCache;
+            std::unordered_map<std::string, uint32_t> textureCache;
 
             for (const auto& source : sourceMaterials) {
                 const bool transparent = source.dissolve < 1.0f || !source.alpha_texname.empty();
@@ -183,10 +184,9 @@ namespace tr::Loading {
                 const auto loadMap = [&](
                     std::string_view textureName,
                     std::string_view mapParam,
-                    std::string_view flagParam,
                     TextureColorSpace colorSpace
                 ) {
-                    const auto texture = loadTexture(
+                    const auto index = loadTexture(
                         resources,
                         scene,
                         modelDirectory,
@@ -194,23 +194,18 @@ namespace tr::Loading {
                         colorSpace,
                         textureCache
                     );
-                    if (texture.isValid()) {
-                        material.set(std::string(mapParam), texture);
-                        material.set(std::string(flagParam), 1.0f);
-                    }
-                    return texture.isValid();
+                    material.set(std::string(mapParam), index);
+                    return index != 0;
                 };
 
                 const bool hasDiffuseMap = loadMap(
                     source.diffuse_texname,
                     "diffuseMap",
-                    "hasDiffuseMap",
                     TextureColorSpace::SRGB
                 );
                 const bool hasEmissionMap = loadMap(
                     source.emissive_texname,
                     "emissionMap",
-                    "hasEmissionMap",
                     TextureColorSpace::SRGB
                 );
                 const std::string_view normalTexture = source.normal_texname.empty()
@@ -219,31 +214,26 @@ namespace tr::Loading {
                 loadMap(
                     normalTexture,
                     "normalMap",
-                    "hasNormalMap",
                     TextureColorSpace::Linear
                 );
                 loadMap(
                     source.metallic_texname,
                     "metallicMap",
-                    "hasMetallicMap",
                     TextureColorSpace::Linear
                 );
                 loadMap(
                     source.roughness_texname,
                     "roughnessMap",
-                    "hasRoughnessMap",
                     TextureColorSpace::Linear
                 );
                 loadMap(
                     source.specular_texname,
                     "specularMap",
-                    "hasSpecularMap",
                     TextureColorSpace::SRGB
                 );
                 loadMap(
                     source.alpha_texname,
                     "opacityMap",
-                    "hasOpacityMap",
                     TextureColorSpace::Linear
                 );
 

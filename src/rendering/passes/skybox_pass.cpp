@@ -90,8 +90,8 @@ namespace tr::Rendering {
         if (frame.environmentData.hasSkybox > 0.5) {
             auto set = _bindingSets[frame.slot];
             const std::array bindings{
-                BindingDesc{ 0, BufferBinding{ frame.environmentDataBuffer } },
-                BindingDesc{ 1, BufferBinding{ frame.cameraDataBuffer } },
+                BindingDesc{ 0, BufferBinding{ frame.environmentDataBuffer, BindingType::UniformBuffer } },
+                BindingDesc{ 1, BufferBinding{ frame.cameraDataBuffer, BindingType::UniformBuffer } },
                 BindingDesc{ 2, ImageSamplerBinding{ context.texture(cubemap) } },
             };
             _resources.updateBindingSet(set, bindings);

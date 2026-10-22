@@ -1,5 +1,5 @@
+import shared_structs;
 import environment;
-import camera_data;
 import math;
 
 [[vk::binding(0, 0)]] ConstantBuffer<EnvironmentData> environmentData;

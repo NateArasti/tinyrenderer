@@ -6,29 +6,22 @@
 #include "render_graph.h"
 #include "draw_commands.h"
 #include "defines.h"
-#include "pbr.h"
 
 namespace tr::Rendering {
     class ColorPass : public RenderPass {
     private:
-        struct MaterialBindings {
-            Handle<BindingSet> set;
-            Handle<GPUBuffer> buffer;
-        };
+        const Data::Shader _shader;
 
-        std::unordered_map<Handle<Material>, MaterialBindings> _materials;
-        Data::EmbeddedShaders::Pbr _shader;
-
-        Handle<BindingLayout> _cameraLayout;
+        Handle<BindingLayout> _sceneLayout;
         Handle<BindingLayout> _materialLayout;
         Handle<BindingLayout> _environmentLayout;
-        std::array<Handle<BindingSet>, MAX_FRAMES_IN_FLIGHT> _cameraSets;
+        std::array<Handle<BindingSet>, MAX_FRAMES_IN_FLIGHT> _sceneSets;
+        Handle<BindingSet> _materialSet;
         std::array<Handle<BindingSet>, MAX_FRAMES_IN_FLIGHT> _environmentSets;
         Handle<PipelineLayout> _pipelineLayout;
         Handle<Pipeline> _opaquePipeline;
         Handle<Pipeline> _transparentPipeline;
 
-        Handle<BindingSet> materialBindings(Handle<Material> handle);
         void updateBindings(RenderGraphContext& context, const FrameContext& frame);
         void draw(
             CommandBuffer& cmd,
@@ -49,10 +42,10 @@ namespace tr::Rendering {
         std::span<const DrawCommand> opaque;
         std::span<const DrawCommand> transparent;
 
-        explicit ColorPass(RenderingResources& resources);
+        explicit ColorPass(Data::Shader shader, RenderingResources& resources);
         ~ColorPass() override;
 
-        void clearMaterials();
+        void setMaterialTable(Handle<GPUBuffer> materials, std::span<const Handle<GPUTexture>> textures);
         void createPipelines(Format colorFormat, Format depthFormat, uint32_t samples);
         void setup(RenderGraphBuilder& builder) override;
         void execute(CommandBuffer& cmd, RenderGraphContext& context, FrameContext& frame) override;

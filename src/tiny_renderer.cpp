@@ -90,6 +90,7 @@ namespace tr {
         bool fpsInitialized = false;
         bool showUI = false;
         bool importErrorPopupPending = false;
+        bool needToUpdateSceneMatrix = false;
 
         Impl() {
             fmt::println(
@@ -164,8 +165,12 @@ namespace tr {
                     ImGui::TextWrapped("Polygons: %zu", currentScene->polygonCount);
                     ImGui::TextWrapped("Objects: %zu", currentScene->getObjects().size());
                     ImGui::Separator();
+                    auto prevScale = currentScene->scale;
                     currentScene->scale = std::max(currentScene->scale, 0.001f);
                     ImGui::DragFloat("Scale", &currentScene->scale, 0.01f, 0.001f, 1000.0f, "%.3f");
+                    if (prevScale != currentScene->scale) {
+                        needToUpdateSceneMatrix = true;
+                    }
                     ImGui::PopItemWidth();
 
                     drawImportErrorPopup();
@@ -361,6 +366,8 @@ namespace tr {
                 renderer->unloadSceneResources(*currentScene);
             }
             currentScene = std::move(scene);
+            renderer->prepareScene(*currentScene);
+            needToUpdateSceneMatrix = true;
         }
 
         void loadScene(SceneLoader load) {
@@ -529,6 +536,11 @@ namespace tr {
                     UI::UIFrame uiFrame = uiProvider.update(uiState);
                     uiDrawData = uiFrame.drawData;
                     canReadInput = !uiFrame.wantsMouse && !uiFrame.wantsKeyboard;
+                }
+
+                if (needToUpdateSceneMatrix) {
+                    renderer->updateSceneMatrix(*currentScene);
+                    needToUpdateSceneMatrix = false;
                 }
 
                 if (canReadInput) {
