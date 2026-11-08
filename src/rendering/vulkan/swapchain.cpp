@@ -8,10 +8,10 @@ namespace tr::Rendering::Vulkan {
     Swapchain::Swapchain(VulkanContext& context, uint32_t width, uint32_t height)
         : _context(context)
     {
-        recreate(width, height);
+        recreate(width, height, true);
     }
 
-    void Swapchain::recreate(uint32_t width, uint32_t height) {
+    void Swapchain::recreate(uint32_t width, uint32_t height, bool vsyncEnabled) {
         if (width == 0 || height == 0) {
             throw std::invalid_argument("Cannot create a zero-sized swapchain");
         }
@@ -29,13 +29,10 @@ namespace tr::Rendering::Vulkan {
             }
         }
 
-        vk::PresentModeKHR presentMode = vk::PresentModeKHR::eFifo;
-        for (const auto candidate : presentModes) {
-            if (candidate == vk::PresentModeKHR::eMailbox) {
-                presentMode = candidate;
-                break;
-            }
-        }
+        _supportsVsyncToggle = std::ranges::find(presentModes, vk::PresentModeKHR::eImmediate) != presentModes.end();
+        const vk::PresentModeKHR presentMode = !vsyncEnabled && _supportsVsyncToggle
+            ? vk::PresentModeKHR::eImmediate
+            : vk::PresentModeKHR::eFifo;
 
         vk::Extent2D extent = capabilities.currentExtent;
         if (extent.width == std::numeric_limits<uint32_t>::max()) {

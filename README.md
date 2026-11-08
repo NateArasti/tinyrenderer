@@ -111,6 +111,8 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] Fog
   - [ ] Custom runtime fullscreen effects
 - **Utility**
+  - [ ] Multi-file import
+  - [ ] More texture import formats
   - [ ] Screenshot Export
   - [ ] Drag-and-drop model loading
   - [ ] File Associations

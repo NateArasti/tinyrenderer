@@ -116,7 +116,10 @@ namespace tr::Rendering::Vulkan {
         }
         _backbuffers.clear();
         _backbufferStates.clear();
-        _swapchain.recreate(_application.window->width(), _application.window->height());
+        _swapchain.recreate(_application.window->width(), _application.window->height(), _vsyncEnabled);
+        if (!supportsVsyncToggle()) {
+            _vsyncEnabled = true;
+        }
         importBackbuffers();
         createFrameTargets();
         _uiRenderer->recreate();
@@ -165,6 +168,15 @@ namespace tr::Rendering::Vulkan {
         _vulkanContext.msaaSamples = sampleCount;
         destroyFrameTargets();
         createFrameTargets();
+    }
+
+    void VulkanRHI::setVsyncEnabled(bool enabled) {
+        if (_vsyncEnabled == enabled || (!enabled && !supportsVsyncToggle())) {
+            return;
+        }
+
+        _vsyncEnabled = enabled;
+        _swapchainDirty = true;
     }
 
     void VulkanRHI::createCommandPool() {

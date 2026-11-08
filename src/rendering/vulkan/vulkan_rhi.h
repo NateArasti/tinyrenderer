@@ -46,6 +46,7 @@ namespace tr::Rendering::Vulkan {
         uint32_t _currentImageIndex = 0;
         bool _frameStarted = false;
         bool _swapchainDirty = false;
+        bool _vsyncEnabled = true;
 
         void createCommandPool();
         void createCommandBuffers();
@@ -64,6 +65,9 @@ namespace tr::Rendering::Vulkan {
         uint32_t getMsaaSamples() const override;
         std::vector<uint32_t> getSupportedMsaaSamples() const override;
         void setMsaaSamples(uint32_t samples) override;
+        bool getVsyncEnabled() const override { return _vsyncEnabled; }
+        bool supportsVsyncToggle() const override { return _swapchain.supportsVsyncToggle(); }
+        void setVsyncEnabled(bool enabled) override;
         float getProjectionYSign() const override { return -1.0f; }
         Format getDepthFormat() const override;
         void waitIdle() override;

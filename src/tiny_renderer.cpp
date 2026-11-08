@@ -116,7 +116,7 @@ namespace tr {
             debugWindow = UI::UIWindow{
                 .name = "Debug",
                 .width = 200.0f,
-                .height = 110.0f,
+                .height = 135.0f,
                 .drawCallback = [this]() {
                     ImGui::PushItemWidth(70.0f);
                     ImGui::Text("FPS: %d", static_cast<int>(1.0f / smoothedDeltaTime));
@@ -137,6 +137,15 @@ namespace tr {
                         }
                         ImGui::EndCombo();
                     }
+                    bool vsyncEnabled = rhi->getVsyncEnabled();
+                    ImGui::BeginDisabled(!rhi->supportsVsyncToggle());
+                    if (ImGui::Checkbox("VSync", &vsyncEnabled)) {
+                        rhi->setVsyncEnabled(vsyncEnabled);
+                    }
+                    if (!rhi->supportsVsyncToggle() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                        ImGui::SetTooltip("VSync cannot be disabled on this surface.");
+                    }
+                    ImGui::EndDisabled();
                     ImGui::PopItemWidth();
                 },
             };

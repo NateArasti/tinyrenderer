@@ -24,6 +24,9 @@ namespace tr::Rendering {
         virtual uint32_t getMsaaSamples() const = 0;
         virtual std::vector<uint32_t> getSupportedMsaaSamples() const = 0;
         virtual void setMsaaSamples(uint32_t samples) = 0;
+        virtual bool getVsyncEnabled() const = 0;
+        virtual bool supportsVsyncToggle() const = 0;
+        virtual void setVsyncEnabled(bool enabled) = 0;
         virtual float getProjectionYSign() const = 0;
         virtual Format getDepthFormat() const = 0;
         virtual void waitIdle() = 0;
