@@ -5,6 +5,7 @@
 #include "handle.h"
 #include "cubemap.h"
 #include "light.h"
+#include "procedural_sky_data.h"
 
 namespace tr::Data {
     struct Environment {
@@ -14,6 +15,7 @@ namespace tr::Data {
         glm::vec3 skyboxTint = glm::vec3(1);
         glm::vec3 clearColor{ 0.05f, 0.05f, 0.05f };
 
+        ProceduralSkyData proceduralSky;
         Light directionalLight;
     };
 }

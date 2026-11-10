@@ -12,6 +12,10 @@ public struct EnvironmentData {
     public float lightIntensity;
     public float4 lightColor;
     public float4x4 lightViewProj;
+    public float4 starAxis;
+
+    public float3 moonRadiance;
+    public float3 moonLight;
 
     public float hasSkybox;
 };

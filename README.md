@@ -66,7 +66,9 @@ Executables are written to `build/win-debug` and `build/win-release`.
 
 - [Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/) – an ok basics with weird learning curve a the start.
 - [Learn OpenGL](https://learnopengl.com/) – an excellent and clear overview of various techniques that can be applied not only in OpenGL.
-- [Art of Render Graphs](https://alielmorsy.github.io/the-art-of-render-graphs/) - good starting point for understanding the render graph system.
+- [Art of Render Graphs](https://alielmorsy.github.io/the-art-of-render-graphs/) – good starting point for understanding the render graph system.
+- [Scratchapixel](https://scratchapixel.com/) – neat source of different 3D rendering techniques
+- [Book of Shaders](https://thebookofshaders.com/)
 
 ## TODO
 
@@ -83,10 +85,11 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [x] Render Graph
   - [x] Image-based lighting
   - [x] Instanced Rendering
-  - [ ] Procedural default skybox
-  - [ ] Cel-Shading
+  - [x] Procedural default skybox
+  - [ ] Toon
   - [ ] Surface Dithering
   - [ ] Occlusion Culling
+  - [ ] Clouds
   - [ ] Point and spot lights
   - [ ] Imported scene lights
   - [ ] Animations

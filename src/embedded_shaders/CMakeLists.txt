@@ -48,8 +48,20 @@ add_embedded_shader_code(
     "${SHADER_SOURCE_DIR}/shared_structs.slang"
 )
 add_embedded_shader_code(skybox Skybox skybox.h 
-    "${SHADER_SOURCE_DIR}/environment.slang"
     "${SHADER_SOURCE_DIR}/shared_structs.slang"
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(procedural_sky ProceduralSky procedural_sky.h 
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+    "${SHADER_SOURCE_DIR}/procedural_sky_data.slang"
+)
+add_embedded_shader_code(procedural_sky_render ProceduralSkyRender procedural_sky_render.h
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+    "${SHADER_SOURCE_DIR}/procedural_sky_data.slang"
 )
 add_embedded_shader_code(
     equirectangular_conversion

@@ -128,19 +128,22 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
         N = applyNormalMap(N, normal, vertIn.worldPos, vertIn.uv, material.normalScale);
     }
 
-    float3 Lo = float3(0);
+    float3 Lo = float3(0.0);
     float3 V = normalize(cameraData.cameraPos - vertIn.worldPos);
-    float3 L = normalize(-environmentData.lightDirection);
+
+    float3 sunDirection = normalize(-environmentData.lightDirection);
+    float3 solarIrradiance = environmentData.lightColor.rgb * environmentData.lightIntensity;
+    float3 moonIrradiance = solarIrradiance * environmentData.moonLight;
+    bool useMoon = sunDirection.y < 0.0;
+    float3 L = useMoon ? -sunDirection : sunDirection;
+    float3 directLight = useMoon ? moonIrradiance : solarIrradiance;
 
     float NdotL = max(dot(N, L), 0.0);
 
-    float4 shadowCoord = mul(environmentData.lightViewProj, float4(vertIn.worldPos, 1));
-    float shadow = isFrontFace && NdotL > 0.0
-                       ? calculateSoftShadow(shadowMap, shadowCoord, NdotL)
-                       : 1.0;
-    float3 radiance = environmentData.lightColor.rgb * environmentData.lightIntensity;
+    float4 shadowCoord = mul(environmentData.lightViewProj, float4(vertIn.worldPos, 1.0));
+    float shadow = isFrontFace && NdotL > 0.0 ? calculateSoftShadow(shadowMap, shadowCoord, NdotL) : 1.0;
 
-    Lo += calculateLight(baseColor.rgb, N, L, V, F0, roughness, metallic) * radiance * shadow;
+    Lo += calculateLight(baseColor.rgb, N, L, V, F0, roughness, metallic) * directLight * shadow;
 
     float3 kS = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
     float NdotV = max(dot(N, V), 0.0);
@@ -153,17 +156,8 @@ float4 fragMain(VSOutput vertIn, bool isFrontFace: SV_IsFrontFace) : SV_TARGET {
 
     static const float MAX_REFLECTION_LOD = 4.0;
 
-    float3 irradiance;
-    float3 prefiltered;
-    if (environmentData.hasSkybox > 0.5) {
-        irradiance = irradianceMap.Sample(rotatedN).rgb;
-        prefiltered = prefilterMap.SampleLevel(rotatedR, roughness * MAX_REFLECTION_LOD).rgb;
-    }
-    else {
-        // A constant environment remains constant after convolution.
-        irradiance = environmentData.clearColor;
-        prefiltered = environmentData.clearColor;
-    }
+    float3 irradiance = irradianceMap.Sample(rotatedN).rgb;
+    float3 prefiltered = prefilterMap.SampleLevel(rotatedR, roughness * MAX_REFLECTION_LOD).rgb;
 
     float3 environmentScale = environmentData.tint * environmentData.intensity;
     irradiance *= environmentScale;

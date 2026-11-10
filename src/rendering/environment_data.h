@@ -13,6 +13,10 @@ namespace tr::Rendering {
         float lightIntensity;
         glm::vec4 lightColor;
         glm::mat4 lightViewProj;
+        glm::vec4 starAxis;
+
+        alignas(16) glm::vec3 moonRadiance;
+        alignas(16) glm::vec3 moonLight;
 
         float hasSkybox;
     };

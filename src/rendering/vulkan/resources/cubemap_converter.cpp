@@ -2,6 +2,7 @@
 
 #include <array>
 #include <bit>
+#include <cstring>
 #include <stdexcept>
 #include <vector>
 
@@ -9,6 +10,7 @@
 #include "irradiance_convolution.h"
 #include "prefilter_environment.h"
 #include "brdf_integration.h"
+#include "procedural_sky_render.h"
 
 #include "import_error.h"
 
@@ -55,17 +57,36 @@ namespace tr::Rendering::Vulkan {
             }
         );
 
-        const vk::DescriptorPoolSize poolSize{
-            .type = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = 1
+        const std::array proceduralBindings{
+            vk::DescriptorSetLayoutBinding{
+                .binding = 0,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eFragment
+            },
+            vk::DescriptorSetLayoutBinding{
+                .binding = 1,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eFragment
+            }
+        };
+        _proceduralDescriptorSetLayout = vk::raii::DescriptorSetLayout(_context.device, {
+            .bindingCount = static_cast<uint32_t>(proceduralBindings.size()),
+            .pBindings = proceduralBindings.data()
+        });
+
+        const std::array poolSizes{
+            vk::DescriptorPoolSize{ vk::DescriptorType::eCombinedImageSampler, 1 },
+            vk::DescriptorPoolSize{ vk::DescriptorType::eUniformBuffer, 2 }
         };
         _descriptorPool = vk::raii::DescriptorPool(
             context.device,
             vk::DescriptorPoolCreateInfo{
                 .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-                .maxSets = 1,
-                .poolSizeCount = 1,
-                .pPoolSizes = &poolSize
+                .maxSets = 2,
+                .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+                .pPoolSizes = poolSizes.data()
             }
         );
         _descriptorSet = std::move(context.device.allocateDescriptorSets({
@@ -73,6 +94,36 @@ namespace tr::Rendering::Vulkan {
             .descriptorSetCount = 1,
             .pSetLayouts = &*_descriptorSetLayout
         }).front());
+
+        _proceduralDescriptorSet = std::move(context.device.allocateDescriptorSets({
+            .descriptorPool = *_descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &*_proceduralDescriptorSetLayout
+        }).front());
+
+        const auto memoryProperties =
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
+        _environmentBuffer = allocator.createBuffer(
+            sizeof(EnvironmentData), vk::BufferUsageFlagBits::eUniformBuffer, memoryProperties
+        );
+        _skyBuffer = allocator.createBuffer(
+            sizeof(Data::ProceduralSkyData), vk::BufferUsageFlagBits::eUniformBuffer, memoryProperties
+        );
+        const std::array bufferInfos{
+            vk::DescriptorBufferInfo{ *_environmentBuffer.buffer, 0, sizeof(EnvironmentData) },
+            vk::DescriptorBufferInfo{ *_skyBuffer.buffer, 0, sizeof(Data::ProceduralSkyData) }
+        };
+        std::array<vk::WriteDescriptorSet, 2> writes;
+        for (uint32_t i = 0; i < writes.size(); ++i) {
+            writes[i] = {
+                .dstSet = *_proceduralDescriptorSet,
+                .dstBinding = i,
+                .descriptorCount = 1,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .pBufferInfo = &bufferInfos[i]
+            };
+        }
+        context.device.updateDescriptorSets(writes, {});
 
         _sourceSampler = vk::raii::Sampler(
             context.device,
@@ -87,23 +138,28 @@ namespace tr::Rendering::Vulkan {
             }
         );
 
+        const std::array sourceLayouts{ *_descriptorSetLayout };
+        const std::array proceduralLayouts{ *_proceduralDescriptorSetLayout };
         const tr::Data::EmbeddedShaders::EquirectangularConversion conversion;
-        _environmentPipeline = createPipeline(conversion, CUBEMAPS_FORMAT, true, sizeof(uint32_t));
+        _environmentPipeline = createPipeline(conversion, CUBEMAPS_FORMAT, sourceLayouts, sizeof(uint32_t));
+
+        const tr::Data::EmbeddedShaders::ProceduralSkyRender procedural;
+        _proceduralPipeline = createPipeline(procedural, CUBEMAPS_FORMAT, proceduralLayouts, sizeof(uint32_t));
 
         const tr::Data::EmbeddedShaders::IrradianceConvolution irradiance;
-        _irradiancePipeline = createPipeline(irradiance, CUBEMAPS_FORMAT, true, sizeof(uint32_t));
+        _irradiancePipeline = createPipeline(irradiance, CUBEMAPS_FORMAT, sourceLayouts, sizeof(uint32_t));
 
         const tr::Data::EmbeddedShaders::PrefilterEnvironment prefilter;
-        _prefilterPipeline = createPipeline(prefilter, CUBEMAPS_FORMAT, true, sizeof(PrefilterPushConstants));
+        _prefilterPipeline = createPipeline(prefilter, CUBEMAPS_FORMAT, sourceLayouts, sizeof(PrefilterPushConstants));
 
         const tr::Data::EmbeddedShaders::BRDFIntegration brdf;
-        _brdfPipeline = createPipeline(brdf, vk::Format::eR16G16Sfloat, false, 0);
+        _brdfPipeline = createPipeline(brdf, vk::Format::eR16G16Sfloat, {}, 0);
     }
 
     CubemapConverter::ConversionPipeline CubemapConverter::createPipeline(
-        const tr::Data::Shader& shader,
+        const Shader& shader,
         vk::Format destinationFormat,
-        bool usesSourceTexture,
+        std::span<const vk::DescriptorSetLayout> setLayouts,
         uint32_t pushConstantSize
     ) {
         const auto formatProperties = _context.physicalDevice.getFormatProperties(destinationFormat);
@@ -204,8 +260,8 @@ namespace tr::Rendering::Vulkan {
         result.layout = vk::raii::PipelineLayout(
             _context.device,
             vk::PipelineLayoutCreateInfo{
-                .setLayoutCount = usesSourceTexture ? 1u : 0u,
-                .pSetLayouts = usesSourceTexture ? &*_descriptorSetLayout : nullptr,
+                .setLayoutCount = static_cast<uint32_t>(setLayouts.size()),
+                .pSetLayouts = setLayouts.data(),
                 .pushConstantRangeCount = hasPushConstants ? 1u : 0u,
                 .pPushConstantRanges = hasPushConstants ? &pushConstantRange : nullptr
             }
@@ -268,9 +324,24 @@ namespace tr::Rendering::Vulkan {
         _context.queue.waitIdle();
     }
 
+    void CubemapConverter::updateSourceTexture(const VulkanImage& source) {
+        const vk::DescriptorImageInfo sourceInfo{
+            .sampler = *_sourceSampler,
+            .imageView = *source.view,
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+        };
+        _context.device.updateDescriptorSets({{
+            .dstSet = *_descriptorSet,
+            .dstBinding = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+            .pImageInfo = &sourceInfo
+        }}, {});
+    }
+
     VulkanImage CubemapConverter::renderFaces(
-        const VulkanImage& source,
-        CubemapConverter::ConversionPipeline& pipeline,
+        const ConversionPipeline& pipeline,
+        std::span<const vk::DescriptorSet> descriptorSets,
         uint32_t faceSize,
         bool generateMipmaps
     ) {
@@ -308,19 +379,6 @@ namespace tr::Rendering::Vulkan {
                 .arrayLayers = 1
             }));
         }
-
-        const vk::DescriptorImageInfo sourceInfo{
-            .sampler = *_sourceSampler,
-            .imageView = *source.view,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-        };
-        _context.device.updateDescriptorSets({{
-            .dstSet = *_descriptorSet,
-            .dstBinding = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &sourceInfo
-        }}, {});
 
         auto commandBuffer = beginCommands();
 
@@ -367,7 +425,7 @@ namespace tr::Rendering::Vulkan {
             vk::PipelineBindPoint::eGraphics,
             *pipeline.layout,
             0,
-            { *_descriptorSet },
+            vk::ArrayProxy<const vk::DescriptorSet>(descriptorSets.size(), descriptorSets.data()),
             {}
         );
 
@@ -411,12 +469,33 @@ namespace tr::Rendering::Vulkan {
             );
         }
 
-        return renderFaces(source, _environmentPipeline, source.extent.width / 4, true);
+        updateSourceTexture(source);
+        const std::array sets{ *_descriptorSet };
+        return renderFaces(_environmentPipeline, sets, source.extent.width / 4, true);
+    }
+
+    VulkanImage CubemapConverter::renderProceduralSky(
+        const EnvironmentData& environment,
+        const Data::ProceduralSkyData& sky,
+        uint32_t faceSize
+    ) {
+        void* environmentData = _environmentBuffer.memory.mapMemory(0, sizeof(environment));
+        std::memcpy(environmentData, &environment, sizeof(environment));
+        _environmentBuffer.memory.unmapMemory();
+
+        void* skyData = _skyBuffer.memory.mapMemory(0, sizeof(sky));
+        std::memcpy(skyData, &sky, sizeof(sky));
+        _skyBuffer.memory.unmapMemory();
+
+        const std::array sets{ *_proceduralDescriptorSet };
+        return renderFaces(_proceduralPipeline, sets, faceSize, true);
     }
 
     VulkanImage CubemapConverter::convolveIrradiance(const VulkanImage& cubemap) {
         static constexpr uint32_t IRRADIANCE_FACE_SIZE = 32;
-        return renderFaces(cubemap, _irradiancePipeline, IRRADIANCE_FACE_SIZE);
+        updateSourceTexture(cubemap);
+        const std::array sets{ *_descriptorSet };
+        return renderFaces(_irradiancePipeline, sets, IRRADIANCE_FACE_SIZE);
     }
 
     VulkanImage CubemapConverter::prefilterEnvironment(const VulkanImage& environment) {

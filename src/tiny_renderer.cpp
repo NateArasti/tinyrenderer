@@ -186,10 +186,37 @@ namespace tr {
                 }
             };
 
+            lightWindow = UI::UIWindow{
+                .name = "Light",
+                .width = 250.0f,
+                .height = 175.0f,
+                .drawCallback = [this]() {
+                    ImGui::PushItemWidth(180.0f);
+                    ImGui::Checkbox("Enabled", &environment.directionalLight.enabled);
+                    ImGui::Checkbox("Shadows", &environment.directionalLight.shadowsEnabled);
+                    ImGui::Separator();
+                    ImGui::BeginDisabled(!environment.directionalLight.enabled);
+                    ImGui::DragFloat(
+                        "Intensity",
+                        &environment.directionalLight.intensity,
+                        0.01f
+                    );
+                    ImGui::ColorEdit3("Color", &environment.directionalLight.color.x);
+                    if (ImGui::DragFloat("Yaw", &lightYaw, 0.5f, -180.0f, 180.0f, "%.1f°", ImGuiSliderFlags_WrapAround)) {
+                        updateLightDirection();
+                    }
+                    if (ImGui::DragFloat("Pitch", &lightPitch, 0.5f, -180.0f, 180.0f, "%.1f°", ImGuiSliderFlags_WrapAround)) {
+                        updateLightDirection();
+                    }
+                    ImGui::EndDisabled();
+                    ImGui::PopItemWidth();
+                }
+            };
+
             envWindow = UI::UIWindow{
                 .name = "Environment",
-                .width = 225.0f,
-                .height = 125.0f,
+                .width = 320.0f,
+                .height = 320.0f,
                 .drawCallback = [this]() {
                     ImGui::PushItemWidth(120.0f);
                     if (ImGui::Button("Load Skybox")) {
@@ -206,37 +233,34 @@ namespace tr {
                         ImGui::SliderAngle("Rotation", &environment.skyboxRotation);
                     }
                     else {
-                        ImGui::ColorEdit3("Clear Color", &environment.clearColor.x);
+                        auto& sky = environment.proceduralSky;
+                        ImGui::DragFloat("Density", &sky.density, 0.01f, 0.0f, 10.0f, "%.2f");
+                        ImGui::SliderInt("Optical Depth Samples", &sky.opticalDepthSamples, 1, 64, "%d");
+                        ImGui::SliderInt("Scattering Samples", &sky.scatteringSamples, 2, 128, "%d");
+                        ImGui::SliderAngle("Sun Radius", &sky.sunRadius, 0.01f, 15.0f, "%.2f deg");
+                        ImGui::SliderAngle("Sun Glow Width", &sky.sunGlowWidth, 0.01f, 60.0f, "%.2f deg");
+                        ImGui::DragFloat("Sun Glow Strength", &sky.sunGlowStrength, 0.01f, 0.0f, 10.0f, "%.2f");
+                        ImGui::SliderAngle("Moon Radius", &sky.moonRadius, 0.01f, 15.0f, "%.2f deg");
+                        ImGui::SliderFloat("Moon Reflectance", &sky.moonReflectance, 0.0f, 1.0f, "%.2f");
+                        ImGui::SliderAngle("Moon Glow Width", &sky.moonGlowWidth, 0.01f, 60.0f, "%.2f deg");
+                        ImGui::DragFloat("Moon Glow Strength", &sky.moonGlowStrength, 0.01f, 0.0f, 10.0f, "%.2f");
+                        if (ImGui::CollapsingHeader("Stars")) {
+                            ImGui::PushID("Stars");
+                            ImGui::DragFloat("Scale", &sky.starScale, 1.0f, 1.0f, 1000.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::SliderFloat("Density", &sky.starDensity, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::DragFloat("Core Width", &sky.starCoreWidth, 0.001f, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::DragFloat("Glow Width", &sky.starGlowWidth, 0.001f, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::DragFloat("Glow Strength", &sky.starGlowStrength, 0.001f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::DragFloat("Brightness", &sky.starBrightness, 0.001f, 0.0f, 10.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::DragFloat("Min Brightness", &sky.starMinBrightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::DragFloat("Brightness Variation", &sky.starBrightnessVariation, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::DragFloat("Brightness Falloff", &sky.starBrightnessFalloff, 0.1f, 0.1f, 32.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+                            ImGui::PopID();
+                        }
                     }
                     ImGui::PopItemWidth();
 
                     drawImportErrorPopup();
-                }
-            };
-
-            lightWindow = UI::UIWindow{
-                .name = "Light",
-                .height = 175.0f,
-                .drawCallback = [this]() {
-                    ImGui::PushItemWidth(120.0f);
-                    ImGui::Checkbox("Enabled", &environment.directionalLight.enabled);
-                    ImGui::Checkbox("Shadows", &environment.directionalLight.shadowsEnabled);
-                    ImGui::Separator();
-                    ImGui::BeginDisabled(!environment.directionalLight.enabled);
-                    ImGui::DragFloat(
-                        "Intensity",
-                        &environment.directionalLight.intensity,
-                        0.01f
-                    );
-                    ImGui::ColorEdit3("Color", &environment.directionalLight.color.x);
-                    if (ImGui::SliderFloat("Yaw", &lightYaw, -180.0f, 180.0f, "%.1f°")) {
-                        updateLightDirection();
-                    }
-                    if (ImGui::SliderFloat("Pitch", &lightPitch, -90.0f, 0.0f, "%.1f°")) {
-                        updateLightDirection();
-                    }
-                    ImGui::EndDisabled();
-                    ImGui::PopItemWidth();
                 }
             };
 
@@ -310,7 +334,7 @@ namespace tr {
                 }
             };
 
-            uiState.leftWindows = { &modelWindow, &envWindow, &lightWindow };
+            uiState.leftWindows = { &modelWindow, &lightWindow, &envWindow };
             uiState.rightWindows = { &debugWindow, &cameraWindow, &postProcessingWindow };
         }
 
@@ -413,8 +437,7 @@ namespace tr {
             environment.skyboxHandle = {};
 
             try {
-                auto cubemap = tr::Loading::CubemapLoader::loadCubemap(path.value(), renderer->getResources());
-                environment.skyboxHandle = renderer->getResources().uploadCubemap(*cubemap);
+                environment.skyboxHandle = tr::Loading::CubemapLoader::loadCubemap(path.value(), renderer->getResources());
             }
             catch (const Loading::ImportError& error) {
                 importError = error.what();

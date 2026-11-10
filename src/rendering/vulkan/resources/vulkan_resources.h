@@ -44,6 +44,7 @@ namespace tr::Rendering::Vulkan {
             bool repeat,
             bool comparison = false
         );
+        Handle<Cubemap> generateCubemapResources(VulkanImage skybox, std::string name);
 
     public:
         VulkanResources(VulkanContext& context, VulkanAllocator& allocator);
@@ -91,6 +92,11 @@ namespace tr::Rendering::Vulkan {
         void destroyTexture(Handle<Texture> handle) override;
 
         Handle<Cubemap> uploadCubemap(const Cubemap& cubemap) override;
+        Handle<Cubemap> generateProceduralCubemap(
+            const EnvironmentData& environment,
+            const ProceduralSkyData& sky,
+            uint32_t faceSize
+        ) override;
         void destroyCubemap(Handle<Cubemap> handle) override;
 
         Handle<Material> uploadMaterial(const Material& material) override;

@@ -1,3 +1,5 @@
+import math;
+
 struct PushConstants {
     int exposure;
     int tonemapping;
@@ -51,12 +53,13 @@ float4 fragMain(VSOutput input) : SV_TARGET {
     float3 color = max(colorSource.Sample(input.uv).rgb, 0);
     color *= exp2(pcs.exposure);
 
+    color += (noise(input.position.xy) - 0.5) / 255.0; // debanding of some sort
+
     switch (pcs.tonemapping) {
         case 1: color = reinhard(color); break;
         case 2: color = filmic(color); break;
         case 3: color = aces(color); break;
     }
-    if (pcs.tonemapping != 0)
-        color = saturate(color);
+    if (pcs.tonemapping != 0) color = saturate(color);
     return float4(color, 1.0);
 }

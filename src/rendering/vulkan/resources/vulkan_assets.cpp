@@ -74,10 +74,25 @@ namespace tr::Rendering::Vulkan {
         destroyTexture(entry.mapped());
     }
 
+    Handle<Cubemap> VulkanResources::generateCubemapResources(VulkanImage skybox, std::string name) {
+        auto irradiance = _cubemapConverter.convolveIrradiance(skybox);
+        auto prefilter = _cubemapConverter.prefilterEnvironment(skybox);
+        const GPUCubemap cubemap{
+            .skybox = storeTexture(name + " skybox", std::move(skybox), false),
+            .irradiance = storeTexture(name + " irradiance", std::move(irradiance), false),
+            .prefiltered = storeTexture(name + " prefilter", std::move(prefilter), false),
+            .brdf = _fallbackCubemap.brdf,
+        };
+        Handle<Cubemap> handle{ _nextHandle++ };
+        _cubemaps.emplace(handle.index, cubemap);
+        return handle;
+    }
+
     Handle<Cubemap> VulkanResources::uploadCubemap(const Cubemap& source) {
         if (!source.width || !source.height || source.pixels.size() != size_t(source.width) * source.height * 4) {
             throw std::invalid_argument("Cubemap source must contain RGBA float pixels");
         }
+        const auto name = source.name.empty() ? "Cubemap" : source.name;
         auto image = _allocator.uploadTexture(
             std::as_bytes(std::span(source.pixels)),
             source.width,
@@ -88,19 +103,16 @@ namespace tr::Rendering::Vulkan {
             false
         );
         auto skybox = _cubemapConverter.convertEquirectangular(image);
-        auto irradiance = _cubemapConverter.convolveIrradiance(skybox);
-        auto prefilter = _cubemapConverter.prefilterEnvironment(skybox);
-        auto brdf = _cubemapConverter.integrateBRDF();
-        const auto name = source.name.empty() ? "Cubemap" : source.name;
-        const GPUCubemap cubemap{
-            .skybox = storeTexture(name + " skybox", std::move(skybox), false),
-            .irradiance = storeTexture(name + " irradiance", std::move(irradiance), false),
-            .prefiltered = storeTexture(name + " prefilter", std::move(prefilter), false),
-            .brdf = storeTexture(name + " brdf", std::move(brdf), false),
-        };
-        Handle<Cubemap> handle{ _nextHandle++ };
-        _cubemaps.emplace(handle.index, cubemap);
-        return handle;
+        return generateCubemapResources(std::move(skybox), name);
+    }
+
+    Handle<Cubemap> VulkanResources::generateProceduralCubemap(
+        const EnvironmentData& environment,
+        const ProceduralSkyData& sky,
+        uint32_t faceSize
+    ) {
+        auto skybox = _cubemapConverter.renderProceduralSky(environment, sky, faceSize);
+        return generateCubemapResources(std::move(skybox), "Procedural sky");
     }
 
     void VulkanResources::destroyCubemap(Handle<Cubemap> handle) {
@@ -112,7 +124,6 @@ namespace tr::Rendering::Vulkan {
         destroyTexture(entry.mapped().skybox);
         destroyTexture(entry.mapped().irradiance);
         destroyTexture(entry.mapped().prefiltered);
-        destroyTexture(entry.mapped().brdf);
     }
 
     const GPUCubemap& VulkanResources::cubemap(Handle<Cubemap> handle) const {

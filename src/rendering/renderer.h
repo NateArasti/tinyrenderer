@@ -15,6 +15,7 @@
 #include "rendering_structs.h"
 
 #include "skybox_pass.h"
+#include "procedural_sky_pass.h"
 #include "shadow_pass.h"
 #include "color_pass.h"
 #include "post_processing_pass.h"
@@ -37,6 +38,10 @@ namespace tr::Rendering {
 
         Format _colorFormat = Undefined;
         uint32_t _samples = 0;
+        glm::vec3 _starAxis{ 1.0f, 0.0f, 0.0f };
+        Handle<Cubemap> _proceduralCubemap;
+        ProceduralSkyData _bakedSkyData;
+        EnvironmentData _bakedSkyEnvironment{};
 
         Data::EmbeddedShaders::Pbr _mainShader;
 
@@ -45,12 +50,14 @@ namespace tr::Rendering {
         std::array<Handle<GPUTexture>, MAX_TEXTURES> _texturesTable;
 
         std::unique_ptr<SkyboxPass> _skyboxPass;
+        std::unique_ptr<ProceduralSkyPass> _proceduralSkyPass;
         std::unique_ptr<ShadowPass> _shadowPass;
         std::unique_ptr<ColorPass> _colorPass;
         std::unique_ptr<PostProcessingPass> _postProcessingPass;
         std::unique_ptr<UIPass> _uiPass;
 
         void updatePipelines(const FrameContext& frame);
+        void updateProceduralCubemap(const EnvironmentData& environment, const ProceduralSkyData& sky);
         void updateFrameData(
             FrameContext& frame,
             const tr::Data::Scene& scene,

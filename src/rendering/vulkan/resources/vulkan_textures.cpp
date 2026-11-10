@@ -37,16 +37,8 @@ namespace tr::Rendering::Vulkan {
             *handle = storeTexture(name, std::move(blackImage), false);
         }
 
-        const std::array<float, 2> neutralBrdf{ 1.0f, 0.0f };
-        auto brdfImage = _allocator.uploadTexture(
-            std::as_bytes(std::span(neutralBrdf)),
-            1, 1,
-            vk::Format::eR32G32Sfloat,
-            false,
-            1,
-            false
-        );
-        _fallbackCubemap.brdf = storeTexture("Fallback BRDF LUT", std::move(brdfImage), false);
+        auto brdfImage = _cubemapConverter.integrateBRDF();
+        _fallbackCubemap.brdf = storeTexture("BRDF LUT", std::move(brdfImage), false);
     }
 
     Handle<GPUTexture> VulkanResources::storeTexture(

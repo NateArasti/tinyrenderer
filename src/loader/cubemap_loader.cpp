@@ -12,10 +12,7 @@
 
 namespace tr::Loading {
     namespace {
-        std::unique_ptr<tr::Data::Cubemap> loadSTB(
-            const std::filesystem::path& path,
-            tr::Rendering::RenderingResources&
-        ) {
+        std::unique_ptr<tr::Data::Cubemap> loadSTB(const std::filesystem::path& path) {
             int width = 0;
             int height = 0;
             float* pixels = stbi_loadf(path.string().c_str(), &width, &height, nullptr, STBI_rgb_alpha);
@@ -34,10 +31,7 @@ namespace tr::Loading {
             return cubemap;
         }
 
-        std::unique_ptr<tr::Data::Cubemap> loadEXR(
-            const std::filesystem::path& path,
-            tr::Rendering::RenderingResources&
-        ) {
+        std::unique_ptr<tr::Data::Cubemap> loadEXR(const std::filesystem::path& path) {
             float* rawPixels = nullptr;
             int width = 0;
             int height = 0;
@@ -70,7 +64,7 @@ namespace tr::Loading {
         }
     }
 
-    std::unique_ptr<tr::Data::Cubemap> CubemapLoader::loadCubemap(
+    tr::Data::Handle<Cubemap> CubemapLoader::loadCubemap(
         const std::filesystem::path& path,
         tr::Rendering::RenderingResources& resources
     ) {
@@ -78,16 +72,20 @@ namespace tr::Loading {
         std::ranges::transform(extension, extension.begin(), [](unsigned char character) {
             return static_cast<char>(std::tolower(character));
         });
+        std::unique_ptr<Cubemap> cubemap;
         if (extension == ".png" ||
             extension == ".jpg" ||
             extension == ".jpeg" ||
             extension == ".hdr"
         ) {
-            return loadSTB(path, resources);
+            cubemap = loadSTB(path);
         }
         else if (extension == ".exr") {
-            return loadEXR(path, resources);
+            cubemap = loadEXR(path);
         }
-        throw ImportError("Unsupported cubemap format: " + extension);
+        else {
+            throw ImportError("Unsupported cubemap format: " + extension);
+        }
+        return resources.uploadCubemap(*cubemap);
     }
 }

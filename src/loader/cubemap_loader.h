@@ -9,7 +9,7 @@
 namespace tr::Loading {
     class CubemapLoader {
     public:
-        static std::unique_ptr<tr::Data::Cubemap> loadCubemap(
+        static tr::Data::Handle<Cubemap> loadCubemap(
             const std::filesystem::path& path,
             tr::Rendering::RenderingResources& resources
         );

@@ -4,7 +4,6 @@
 #include "render_graph.h"
 #include "handle.h"
 #include "rendering_structs.h"
-#include "cubemap.h"
 
 #include <array>
 
@@ -25,8 +24,8 @@ namespace tr::Rendering {
         RGHandle target;
 
         SkyboxPass(RenderingResources& resources);
-
         ~SkyboxPass() override;
+        
         void createPipeline(Format format, uint32_t samples);
 
         void setup(RenderGraphBuilder& builder) override;

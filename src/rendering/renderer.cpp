@@ -3,10 +3,13 @@
 #include <map>
 #include <tuple>
 #include <algorithm>
+#include <cmath>
+#include <tuple>
 
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/ext/scalar_constants.hpp>
 
 #include "render_graph.h"
 #include "passes/ui_pass.h"
@@ -19,6 +22,20 @@
 
 namespace tr::Rendering {
     namespace {
+        bool sameSkyBakeSettings(const ProceduralSkyData& a, const ProceduralSkyData& b) {
+            return std::tie(
+                a.density, a.opticalDepthSamples, a.scatteringSamples, a.moonRadius,
+                a.starScale, a.starDensity, a.starCoreWidth, a.starGlowWidth,
+                a.starGlowStrength, a.starBrightness, a.starMinBrightness,
+                a.starBrightnessVariation, a.starBrightnessFalloff
+            ) == std::tie(
+                b.density, b.opticalDepthSamples, b.scatteringSamples, b.moonRadius,
+                b.starScale, b.starDensity, b.starCoreWidth, b.starGlowWidth,
+                b.starGlowStrength, b.starBrightness, b.starMinBrightness,
+                b.starBrightnessVariation, b.starBrightnessFalloff
+            );
+        }
+
         CameraData createCameraData(const tr::Data::Camera& camera, float aspect) {
             glm::mat4 cameraProjection;
             if (camera.projection == tr::Data::CameraProjection::Perspective) {
@@ -38,35 +55,75 @@ namespace tr::Rendering {
             };
         }
 
-        EnvironmentData createEnvironmentData(const tr::Data::Scene& scene, const tr::Data::Environment& env) {
+        EnvironmentData createEnvironmentData(
+            const tr::Data::Scene& scene,
+            const tr::Data::Environment& env,
+            glm::vec3& previousStarAxis
+        ) {
             auto [sceneCenter, sceneSize] = scene.getSceneBounds();
             const glm::vec3 scaledSceneCenter = sceneCenter * scene.scale;
             const glm::vec3 scaledSceneSize = sceneSize * glm::abs(scene.scale);
-            float sceneRadius =
-                std::max(0.01f, 2 * std::max(std::max(scaledSceneSize.x, scaledSceneSize.y), scaledSceneSize.z));
-            glm::vec3 dir = glm::normalize(env.directionalLight.direction);
+            float sceneRadius = std::max(
+                0.01f,
+                2 * std::max(std::max(scaledSceneSize.x, scaledSceneSize.y), scaledSceneSize.z)
+            );
             float padding = sceneRadius;
-            glm::vec3 eye = scaledSceneCenter - dir * (sceneRadius + padding);
-            glm::vec3 up = glm::abs(dir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+            glm::vec3 dir = glm::normalize(env.directionalLight.direction);
+            glm::vec3 starAxis{ dir.z, 0.0f, -dir.x };
+            float axisLengthSquared = glm::dot(starAxis, starAxis);
+            if (axisLengthSquared > 1e-12f) {
+                starAxis /= std::sqrt(axisLengthSquared);
+                // Keep the axis orientation when pitch crosses a pole.
+                if (glm::dot(starAxis, previousStarAxis) < 0.0f) {
+                    starAxis = -starAxis;
+                }
+            }
+            else {
+                starAxis = previousStarAxis;
+            }
+            previousStarAxis = starAxis;
+            bool useMoon = !env.skyboxHandle.isValid() && dir.y > 0.0f;
+            glm::vec3 shadowDir = useMoon ? -dir : dir;
+            glm::vec3 eye = scaledSceneCenter - shadowDir * (sceneRadius + padding);
+            glm::vec3 up = glm::abs(shadowDir.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
             glm::mat4 lightView = glm::lookAtLH(eye, scaledSceneCenter, up);
-            glm::mat4 lightProj = glm::orthoLH_ZO(-sceneRadius,
+            glm::mat4 lightProj = glm::orthoLH_ZO(
+                -sceneRadius,
                 sceneRadius,
                 -sceneRadius,
                 sceneRadius,
                 0.0f,
-                2.0f * sceneRadius + padding);
+                2.0f * sceneRadius + padding
+            );
             glm::mat4 lightViewProj = lightProj * lightView;
+
+            const bool hasSkybox = env.skyboxHandle.isValid();
+            const float lightIntensity = env.directionalLight.enabled ? env.directionalLight.intensity : 0.0f;
+            glm::vec3 moonRadiance =
+                glm::vec3(env.directionalLight.color) *
+                lightIntensity *
+                env.proceduralSky.moonReflectance /
+                glm::pi<float>();
+            glm::vec3 moonLight =
+                moonRadiance *
+                (2.0f / 3.0f) *
+                glm::pi<float>() *
+                env.proceduralSky.moonRadius *
+                env.proceduralSky.moonRadius;
 
             return EnvironmentData{
                 .clearColor = env.clearColor,
                 .skyboxRotation = env.skyboxRotation,
                 .skyboxTint = env.skyboxTint,
                 .skyboxIntensity = env.skyboxIntensity,
-                .lightDirection = env.directionalLight.direction,
-                .lightIntensity = env.directionalLight.enabled ? env.directionalLight.intensity : 0.0f,
+                .lightDirection = dir,
+                .lightIntensity = lightIntensity,
                 .lightColor = env.directionalLight.color,
                 .lightViewProj = lightViewProj,
-                .hasSkybox = env.skyboxHandle.isValid() ? 1.0f : 0.0f,
+                .starAxis = glm::vec4(starAxis, 0.0f),
+                .moonRadiance = moonRadiance,
+                .moonLight = moonLight,
+                .hasSkybox = hasSkybox ? 1.0f : 0.0f,
             };
         }
     }
@@ -87,6 +144,7 @@ namespace tr::Rendering {
         }
 
         _skyboxPass = std::make_unique<SkyboxPass>(resources);
+        _proceduralSkyPass = std::make_unique<ProceduralSkyPass>(resources);
         _shadowPass = std::make_unique<ShadowPass>(resources);
         _colorPass = std::make_unique<ColorPass>(_mainShader, resources);
         _postProcessingPass = std::make_unique<PostProcessingPass>(resources);
@@ -99,6 +157,7 @@ namespace tr::Rendering {
         _postProcessingPass.reset();
         _colorPass.reset();
         _shadowPass.reset();
+        _proceduralSkyPass.reset();
         _skyboxPass.reset();
 
         for (auto buffer : _cameraDataBuffers) {
@@ -107,6 +166,7 @@ namespace tr::Rendering {
         for (auto buffer : _environmentDataBuffers) {
             _rhi.resources().destroyBuffer(buffer);
         }
+        _rhi.resources().destroyCubemap(_proceduralCubemap);
     }
 
     void Renderer::prepareScene(tr::Data::Scene& scene) {
@@ -247,10 +307,30 @@ namespace tr::Rendering {
 
         _rhi.waitIdle();
         _skyboxPass->createPipeline(HDR_FORMAT, samples);
+        _proceduralSkyPass->createPipeline(HDR_FORMAT, samples);
         _colorPass->createPipelines(HDR_FORMAT, _rhi.getDepthFormat(), samples);
         _postProcessingPass->createPipeline(finalColorFormat);
         _colorFormat = finalColorFormat;
         _samples = samples;
+    }
+
+    void Renderer::updateProceduralCubemap(const EnvironmentData& environment, const ProceduralSkyData& sky) {
+        if (_proceduralCubemap.isValid()
+            && sameSkyBakeSettings(sky, _bakedSkyData)
+            && environment.lightDirection == _bakedSkyEnvironment.lightDirection
+            && environment.lightIntensity == _bakedSkyEnvironment.lightIntensity
+            && glm::vec3(environment.lightColor) == glm::vec3(_bakedSkyEnvironment.lightColor)
+            && environment.moonLight == _bakedSkyEnvironment.moonLight
+            && environment.starAxis == _bakedSkyEnvironment.starAxis) {
+            return;
+        }
+
+        auto& resources = _rhi.resources();
+        auto replacement = resources.generateProceduralCubemap(environment, sky, 256);
+        resources.destroyCubemap(_proceduralCubemap);
+        _proceduralCubemap = replacement;
+        _bakedSkyData = sky;
+        _bakedSkyEnvironment = environment;
     }
 
     void Renderer::updateFrameData(
@@ -261,7 +341,10 @@ namespace tr::Rendering {
     ) {
         frame.cameraData = createCameraData(camera, frame.extent.x / frame.extent.y);
         frame.cameraData.proj[1][1] *= _rhi.getProjectionYSign();
-        frame.environmentData = createEnvironmentData(scene, environment);
+        frame.environmentData = createEnvironmentData(scene, environment, _starAxis);
+        if (!environment.skyboxHandle.isValid()) {
+            updateProceduralCubemap(frame.environmentData, environment.proceduralSky);
+        }
         frame.cameraDataBuffer = _cameraDataBuffers[frame.slot];
         frame.environmentDataBuffer = _environmentDataBuffers[frame.slot];
         frame.instanceBuffer = _instanceBuffer;
@@ -308,11 +391,8 @@ namespace tr::Rendering {
             : graph.importTexture("MSAA color", frame.colorTarget, TextureState::Undefined);
         const auto depth = graph.importTexture("Depth", frame.depthTarget, TextureState::Undefined);
 
-        const auto cubemap = resources.cubemap(environment.skyboxHandle);
-        const auto skybox = graph.importTexture(
-            "Skybox",
-            cubemap.skybox,
-            TextureState::ShaderRead
+        const auto cubemap = resources.cubemap(
+            environment.skyboxHandle.isValid() ? environment.skyboxHandle : _proceduralCubemap
         );
         const auto irradiance = graph.importTexture(
             "Irradiance",
@@ -330,9 +410,22 @@ namespace tr::Rendering {
             TextureState::ShaderRead
         );
 
-        _skyboxPass->target = color;
-        _skyboxPass->cubemap = skybox;
-        graph.addPass(*_skyboxPass);
+        if (environment.skyboxHandle.isValid()) {
+            const auto skybox = graph.importTexture(
+                "Skybox",
+                cubemap.skybox,
+                TextureState::ShaderRead
+            );
+
+            _skyboxPass->target = color;
+            _skyboxPass->cubemap = skybox;
+            graph.addPass(*_skyboxPass);
+        }
+        else {
+            _proceduralSkyPass->target = color;
+            _proceduralSkyPass->proceduralSkyData = environment.proceduralSky;
+            graph.addPass(*_proceduralSkyPass);
+        }
 
         _shadowPass->draws =
             environment.directionalLight.enabled && environment.directionalLight.shadowsEnabled

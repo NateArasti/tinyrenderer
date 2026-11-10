@@ -9,6 +9,8 @@
 #include "shader.h"
 #include "texture.h"
 #include "cubemap.h"
+#include "environment_data.h"
+#include "procedural_sky_data.h"
 
 using namespace tr::Data;
 
@@ -49,6 +51,11 @@ namespace tr::Rendering {
         virtual void destroyTexture(Handle<Texture> handle) = 0;
 
         virtual Handle<Cubemap> uploadCubemap(const Cubemap& cubemap) = 0;
+        virtual Handle<Cubemap> generateProceduralCubemap(
+            const EnvironmentData& environment,
+            const ProceduralSkyData& sky,
+            uint32_t faceSize
+        ) = 0;
         virtual void destroyCubemap(Handle<Cubemap> handle) = 0;
 
         virtual Handle<Material> uploadMaterial(const Material& material) = 0;
