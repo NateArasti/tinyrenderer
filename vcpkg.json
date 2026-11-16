@@ -16,5 +16,13 @@
     "rapidobj",
     "stb",
     "tinyexr"
-  ]
+  ],
+  "features": {
+    "tests": {
+      "description": "Build tests",
+      "dependencies": [
+        "gtest"
+      ]
+    }
+  }
 }

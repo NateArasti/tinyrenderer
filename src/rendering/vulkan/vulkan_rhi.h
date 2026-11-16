@@ -57,10 +57,11 @@ namespace tr::Rendering::Vulkan {
         void destroyFrameTargets();
 
     public:
-        explicit VulkanRHI(const tr::App::Application& application);
+        explicit VulkanRHI(const tr::App::Application& application, ValidationOptions validation = {});
         ~VulkanRHI() override;
 
         std::string getDeviceName() const override;
+        bool validationEnabled() const { return _vulkanContext.validationEnabled(); }
         void resize(uint32_t width, uint32_t height) override;
         uint32_t getMsaaSamples() const override;
         std::vector<uint32_t> getSupportedMsaaSamples() const override;

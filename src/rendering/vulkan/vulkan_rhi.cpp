@@ -5,11 +5,12 @@
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 
 namespace tr::Rendering::Vulkan {
-    VulkanRHI::VulkanRHI(const tr::App::Application& application) :
+    VulkanRHI::VulkanRHI(const tr::App::Application& application, ValidationOptions validation) :
         _application(application),
-        _vulkanContext(application),
+        _vulkanContext(application, std::move(validation)),
         _allocator(_vulkanContext),
         _swapchain(_vulkanContext, application.window->width(), application.window->height())
     {
@@ -276,13 +277,14 @@ namespace tr::Rendering::Vulkan {
         _vulkanContext.device.resetFences({ *_inFlightFences[_currentFrame] });
 
         vk::CommandBufferSubmitInfo commandBufferInfo{ .commandBuffer = commandBuffer };
+        // Include image layout transitions in the acquire and present semaphore scopes.
         vk::SemaphoreSubmitInfo waitSemaphoreInfo{
             .semaphore = *_imageAvailableSemaphores[_currentFrame],
-            .stageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .stageMask = vk::PipelineStageFlagBits2::eAllCommands,
         };
         vk::SemaphoreSubmitInfo signalSemaphoreInfo{
             .semaphore = *_swapchain.renderFinished(_currentImageIndex),
-            .stageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .stageMask = vk::PipelineStageFlagBits2::eAllCommands,
         };
         vk::SubmitInfo2 submitInfo{
             .waitSemaphoreInfoCount = 1,

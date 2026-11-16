@@ -456,7 +456,7 @@ namespace tr::Rendering {
         graph.setFinalState(backbuffer, TextureState::Present);
     }
 
-    void Renderer::render(
+    bool Renderer::render(
         const Data::Scene& scene,
         const Data::Camera& camera,
         const Data::Environment& environment,
@@ -466,7 +466,7 @@ namespace tr::Rendering {
     ) {
         auto frame = _rhi.startFrame();
         if (!frame) {
-            return;
+            return false;
         }
 
         updatePipelines(*frame);
@@ -479,5 +479,6 @@ namespace tr::Rendering {
         graph.execute(*frame);
 
         _rhi.endFrame();
+        return true;
     }
 }

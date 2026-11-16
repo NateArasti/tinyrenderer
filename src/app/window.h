@@ -20,7 +20,7 @@ namespace tr::App {
         bool _resized = false;
 
     public:
-        Window(int width, int height, std::string_view title);
+        Window(int width, int height, std::string_view title, bool visible = true);
         ~Window();
 
         uint32_t width() const { return _framebufferWidth; }

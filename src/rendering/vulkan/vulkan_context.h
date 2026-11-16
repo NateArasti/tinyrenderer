@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string_view>
 #include <type_traits>
 
@@ -9,8 +10,20 @@
 #include "application.h"
 
 namespace tr::Rendering::Vulkan {
+    struct ValidationOptions {
+#ifdef NDEBUG
+        bool enabled = false;
+#else
+        bool enabled = true;
+#endif
+        bool synchronizationValidation = false;
+        std::function<void(vk::DebugUtilsMessageSeverityFlagBitsEXT, std::string_view)> onMessage;
+    };
+
     class VulkanContext {
     private:
+        ValidationOptions _validation;
+
         const std::vector<const char*> _requiredDeviceExtension = {
             vk::KHRSwapchainExtensionName
         };
@@ -43,7 +56,7 @@ namespace tr::Rendering::Vulkan {
         vk::SampleCountFlagBits msaaSamples = vk::SampleCountFlagBits::e1;
         vk::Format depthFormat;
 
-        explicit VulkanContext(const tr::App::Application& app);
+        explicit VulkanContext(const tr::App::Application& app, ValidationOptions validation = {});
 
         VulkanContext(const VulkanContext&) = delete;
         VulkanContext& operator=(const VulkanContext&) = delete;
@@ -51,6 +64,7 @@ namespace tr::Rendering::Vulkan {
         VulkanContext& operator=(VulkanContext&&) = delete;
 
         bool debugUtilsEnabled() const { return _debugUtilsEnabled; }
+        bool validationEnabled() const { return _validation.enabled && static_cast<bool>(*debugMessenger); }
 
         template<typename Handle>
         void setDebugName(Handle handle, std::string_view name) {

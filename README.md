@@ -24,6 +24,7 @@ Installed through [vcpkg.json](vcpkg.json) manifest:
 
 - GLFW
 - GLM
+- GoogleTest (when `BUILD_TESTS` is enabled)
 - ImGui (Vulkan backend)
 - fmt
 - stb
@@ -48,6 +49,20 @@ cmake --build --preset win-release
 ```
 
 Executables are written to `build/win-debug` and `build/win-release`.
+
+## Tests
+
+Tests are disabled by default. Enable the `BUILD_TESTS` CMake option to build them:
+
+```bash
+-DBUILD_TESTS=ON
+```
+
+This also enables the vcpkg `tests` feature, which installs GoogleTest.
+
+The test executable uses an empty implicit-layer search directory to exclude
+third-party overlays; the explicitly requested validation layer remains enabled.
+CTest runs use a shared GPU resource lock and a 180-second timeout per demo.
 
 ## Controls
 

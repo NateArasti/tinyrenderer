@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 4.3.1)
 
+option(BUILD_TESTS "Build tests" OFF)
+if(BUILD_TESTS)
+    list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif()
+
 project(
     tinyrenderer 
     VERSION 1.0 
@@ -48,4 +53,9 @@ target_link_libraries(tinyrenderer PRIVATE rendering_vulkan)
 
 find_package(fmt REQUIRED)
 target_link_libraries(tinyrenderer PRIVATE fmt::fmt)
+
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 

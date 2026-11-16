@@ -5,7 +5,7 @@
 #include <stdexcept>
 
 namespace tr::App {
-    Window::Window(int width, int height, std::string_view title)
+    Window::Window(int width, int height, std::string_view title, bool visible)
         : _logicalWidth(width),
           _logicalHeight(height),
           _framebufferWidth(width),
@@ -15,6 +15,7 @@ namespace tr::App {
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+        glfwWindowHint(GLFW_VISIBLE, visible ? GLFW_TRUE : GLFW_FALSE);
 
         _window = glfwCreateWindow(
             static_cast<int>(width),

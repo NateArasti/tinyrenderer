@@ -90,7 +90,7 @@ namespace tr::Rendering {
         void unloadSceneResources(const tr::Data::Scene& scene);
         void updateSceneMatrix(const tr::Data::Scene& scene, float sceneScale);
         void prepareUI();
-        void render(
+        bool render(
             const tr::Data::Scene& scene,
             const tr::Data::Camera& camera,
             const tr::Data::Environment& env,
