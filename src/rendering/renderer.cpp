@@ -1,10 +1,10 @@
 #include "renderer.h"
 
-#include <map>
-#include <tuple>
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <tuple>
+#include <unordered_map>
 
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/glm.hpp>
@@ -58,11 +58,12 @@ namespace tr::Rendering {
         EnvironmentData createEnvironmentData(
             const tr::Data::Scene& scene,
             const tr::Data::Environment& env,
-            glm::vec3& previousStarAxis
+            glm::vec3& previousStarAxis,
+            float sceneScale
         ) {
-            auto [sceneCenter, sceneSize] = scene.getSceneBounds();
-            const glm::vec3 scaledSceneCenter = sceneCenter * scene.scale;
-            const glm::vec3 scaledSceneSize = sceneSize * glm::abs(scene.scale);
+            auto sceneBounds = scene.getBounds();
+            const glm::vec3 scaledSceneCenter = sceneBounds.getCenter() * sceneScale;
+            const glm::vec3 scaledSceneSize = sceneBounds.getSize() * glm::abs(sceneScale);
             float sceneRadius = std::max(
                 0.01f,
                 2 * std::max(std::max(scaledSceneSize.x, scaledSceneSize.y), scaledSceneSize.z)
@@ -169,19 +170,17 @@ namespace tr::Rendering {
         _rhi.resources().destroyCubemap(_proceduralCubemap);
     }
 
-    void Renderer::prepareScene(tr::Data::Scene& scene) {
+    void Renderer::prepareScene(const tr::Data::Scene& scene) {
         auto& resources = _rhi.resources();
 
-        auto fallbackTexture = resources.texture({});
-        for (int i = 0; i < MAX_TEXTURES; ++i) {
-            _texturesTable[i] = fallbackTexture;
-        }
-        for (int i = 0; i < scene.ownedTextures.size(); ++i) {
-            _texturesTable[i + 1] = resources.texture(scene.ownedTextures[i]);
+        _texturesTable.fill(resources.texture({}));
+        const auto textures = scene.getOwnedTextures();
+        for (size_t i = 0; i < textures.size(); ++i) {
+            _texturesTable[i + 1] = resources.texture(textures[i]);
         }
 
         std::vector<std::byte> materialsBuffer;
-        for (auto materialHandle : scene.ownedMaterials) {
+        for (auto materialHandle : scene.getOwnedMaterials()) {
             const auto& material = resources.material(materialHandle);
             std::vector<std::byte> materialBytes = material.packMaterial(_mainShader);
             materialsBuffer.insert(materialsBuffer.end(), materialBytes.begin(), materialBytes.end());
@@ -193,21 +192,18 @@ namespace tr::Rendering {
         _colorPass->setMaterialTable(_materialsTableBuffer, _texturesTable);
     }
 
-    void Renderer::unloadSceneResources(Data::Scene& scene) {
+    void Renderer::unloadSceneResources(const Data::Scene& scene) {
         _rhi.waitIdle();
         auto& resources = _rhi.resources();
-        for (auto handle : scene.ownedMaterials) {
+        for (auto handle : scene.getOwnedMaterials()) {
             resources.destroyMaterial(handle);
         }
-        for (auto handle : scene.ownedMeshes) {
+        for (auto handle : scene.getOwnedMeshes()) {
             resources.destroyMesh(handle);
         }
-        for (auto handle : scene.ownedTextures) {
+        for (auto handle : scene.getOwnedTextures()) {
             resources.destroyTexture(handle);
         }
-        scene.ownedMaterials.clear();
-        scene.ownedMeshes.clear();
-        scene.ownedTextures.clear();
 
         if (_instanceBuffer.isValid()) {
             resources.destroyBuffer(_instanceBuffer);
@@ -217,20 +213,21 @@ namespace tr::Rendering {
             resources.destroyBuffer(_materialsTableBuffer);
             _materialsTableBuffer = {};
         }
-        auto fallbackTexture = resources.texture({});
-        for (int i = 0; i < MAX_TEXTURES; ++i) {
-            _texturesTable[i] = fallbackTexture;
-        }
+        _opaqueDrawQueue.clear();
+        _transparentDrawQueue.clear();
+        _texturesTable.fill(resources.texture({}));
     }
 
-    void Renderer::updateSceneMatrix(tr::Data::Scene& scene) {
+    void Renderer::updateSceneMatrix(const tr::Data::Scene& scene, float sceneScale) {
         _rhi.waitIdle();
 
         auto& resources = _rhi.resources();
 
+        const auto materials = scene.getOwnedMaterials();
         std::unordered_map<Handle<Material>, uint32_t> materialIndices;
-        for (uint32_t i = 0; i < scene.ownedMaterials.size(); ++i) {
-            materialIndices.emplace(scene.ownedMaterials.at(i), i);
+        materialIndices.reserve(materials.size());
+        for (size_t i = 0; i < materials.size(); ++i) {
+            materialIndices.emplace(materials[i], static_cast<uint32_t>(i));
         }
 
         if (_instanceBuffer.isValid()) {
@@ -244,18 +241,18 @@ namespace tr::Rendering {
         using BatchKey = std::tuple<Handle<Mesh>, uint32_t>;
         std::map<BatchKey, std::vector<InstanceData>> batchGroups;
 
-        const auto sceneTransform = glm::scale(glm::mat4(1.0f), glm::vec3(scene.scale));
+        const auto sceneTransform = glm::scale(glm::mat4(1.0f), glm::vec3(sceneScale));
         for (const auto& object : scene.getObjects()) {
-            if (!object || !object->mesh.isValid()) {
+            if (!object.mesh.isValid()) {
                 continue;
             }
 
-            const glm::mat4 modelMatrix = sceneTransform * object->transform.getMatrix();
+            const glm::mat4 modelMatrix = sceneTransform * object.transform.getMatrix();
             const glm::mat4 normalMatrix = glm::transpose(glm::inverse(glm::mat3(modelMatrix)));
-            for (uint32_t i = 0; i < object->materials.size(); ++i) {
-                const auto& material = object->materials[i];
-                if (_rhi.resources().material(material).blendMode == BlendMode::Opaque) {
-                    batchGroups[{ object->mesh, i }].push_back(
+            for (uint32_t i = 0; i < object.materials.size(); ++i) {
+                const auto& material = object.materials[i];
+                if (resources.material(material).blendMode == BlendMode::Opaque) {
+                    batchGroups[{ object.mesh, i }].push_back(
                         InstanceData{
                             .model = modelMatrix,
                             .normal = normalMatrix,
@@ -265,7 +262,7 @@ namespace tr::Rendering {
                 }
                 else {
                     _transparentDrawQueue.push_back(DrawCommand{
-                        .mesh = object->mesh,
+                        .mesh = object.mesh,
                         .subMeshIndex = i,
                         .firstInstance = static_cast<uint32_t>(instanceBuffer.size()),
                         .sortPosition = modelMatrix[3],
@@ -273,7 +270,7 @@ namespace tr::Rendering {
                     instanceBuffer.push_back(InstanceData{
                         .model = modelMatrix,
                         .normal = normalMatrix,
-                        .materialIndex = materialIndices.at(object->materials[i])
+                        .materialIndex = materialIndices.at(material)
                     });
                 }
             }
@@ -337,11 +334,12 @@ namespace tr::Rendering {
         FrameContext& frame,
         const Data::Scene& scene,
         const Data::Camera& camera,
-        const Data::Environment& environment
+        const Data::Environment& environment,
+        float sceneScale
     ) {
         frame.cameraData = createCameraData(camera, frame.extent.x / frame.extent.y);
         frame.cameraData.proj[1][1] *= _rhi.getProjectionYSign();
-        frame.environmentData = createEnvironmentData(scene, environment, _starAxis);
+        frame.environmentData = createEnvironmentData(scene, environment, _starAxis, sceneScale);
         if (!environment.skyboxHandle.isValid()) {
             updateProceduralCubemap(frame.environmentData, environment.proceduralSky);
         }
@@ -354,7 +352,7 @@ namespace tr::Rendering {
         resources.updateBuffer(frame.environmentDataBuffer, std::as_bytes(std::span(&frame.environmentData, 1)));
     }
 
-    void Renderer::sortTransparentQueue(const Data::Scene& scene, const Data::Camera& camera) {
+    void Renderer::sortTransparentQueue(const Data::Camera& camera) {
         const auto cameraPosition = camera.transform.position;
         std::sort(_transparentDrawQueue.begin(),
             _transparentDrawQueue.end(),
@@ -463,7 +461,8 @@ namespace tr::Rendering {
         const Data::Camera& camera,
         const Data::Environment& environment,
         const PostProcessingData& postProcessingData,
-        ImDrawData* uiDrawData
+        ImDrawData* uiDrawData,
+        float sceneScale
     ) {
         auto frame = _rhi.startFrame();
         if (!frame) {
@@ -471,8 +470,8 @@ namespace tr::Rendering {
         }
 
         updatePipelines(*frame);
-        updateFrameData(*frame, scene, camera, environment);
-        sortTransparentQueue(scene, camera);
+        updateFrameData(*frame, scene, camera, environment, sceneScale);
+        sortTransparentQueue(camera);
 
         RenderGraph graph(_rhi.resources());
         setupGraph(graph, *frame, environment, postProcessingData, uiDrawData);

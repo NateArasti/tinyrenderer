@@ -6,8 +6,14 @@
 
 #include <glm/glm.hpp>
 
+#include "bounds.h"
+
 namespace tr::Data {
     struct Mesh {
+    private:
+        Bounds _bounds;
+
+    public:
         struct Vertex {
             glm::vec3 position;
             glm::vec3 normal;
@@ -35,6 +41,17 @@ namespace tr::Data {
                 vertices[i1].normal = normal;
                 vertices[i2].normal = normal;
             }
+        }
+
+        void recalculateBounds() {
+            _bounds = {};
+            for (const auto& vertex : vertices) {
+                _bounds.encapsulate(vertex.position);
+            }
+        }
+
+        Bounds getBounds() const {
+            return _bounds;
         }
     };
 }

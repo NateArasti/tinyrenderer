@@ -4,11 +4,13 @@
 #include <cctype>
 #include <cstdlib>
 #include <memory>
+#include <string>
 
 #include <stb_image.h>
 #include <tinyexr.h>
 
 #include "import_error.h"
+#include "rendering_resources.h"
 
 namespace tr::Loading {
     namespace {
@@ -64,7 +66,7 @@ namespace tr::Loading {
         }
     }
 
-    tr::Data::Handle<Cubemap> CubemapLoader::loadCubemap(
+    tr::Data::Handle<Cubemap> loadCubemap(
         const std::filesystem::path& path,
         tr::Rendering::RenderingResources& resources
     ) {

@@ -1,8 +1,7 @@
-#include "fbx_importer.h"
+#include "model_loader.h"
+#include "scene_builder.h"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -12,9 +11,9 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include <fmt/base.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <ufbx.h>
@@ -26,30 +25,18 @@
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"
-#include "rhi.h"
 #include "transform.h"
 #include "coordinate_conversion.h"
 
 namespace tr::Loading {
-    namespace {
-        using namespace tr::Data;
+    using namespace tr::Data;
 
+    namespace {
         struct SceneDeleter {
             void operator()(ufbx_scene* scene) const {
                 ufbx_free_scene(scene);
             }
         };
-
-        bool equalsIgnoreCase(std::string_view a, std::string_view b) {
-            return std::ranges::equal(
-                a,
-                b,
-                [](char lhs, char rhs) {
-                    return std::tolower(static_cast<unsigned char>(lhs))
-                        == std::tolower(static_cast<unsigned char>(rhs));
-                }
-            );
-        }
 
         std::string toString(ufbx_string source) {
             return source.data ? std::string(source.data, source.length) : std::string();
@@ -112,8 +99,7 @@ namespace tr::Loading {
         }
 
         uint32_t loadTexture(
-            Rendering::RenderingResources& resources,
-            Scene& scene,
+            SceneBuilder& builder,
             const std::filesystem::path& modelDirectory,
             const ufbx_texture* sourceTexture,
             TextureColorSpace colorSpace,
@@ -209,9 +195,7 @@ namespace tr::Loading {
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const auto handle = resources.uploadTexture(texture);
-            scene.own(handle);
-            const auto index = static_cast<uint32_t>(scene.ownedTextures.size());
+            const auto index = builder.registerTexture(texture);
             cache.emplace(cacheKey, index);
             return index;
         }
@@ -224,7 +208,7 @@ namespace tr::Loading {
             return map.has_value ? toGlm(map.value_vec3) : fallback;
         }
 
-        Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
+        Handle<Material> createDefaultMaterial(SceneBuilder& builder) {
             Material material;
             material.name = "default";
             material.set("diffuseColor", glm::vec4(1.0f));
@@ -232,14 +216,11 @@ namespace tr::Loading {
             material.set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
             material.set("metallicFactor", 0.0f);
             material.set("roughnessFactor", 1.0f);
-            const auto handle = resources.uploadMaterial(material);
-            scene.own(handle);
-            return handle;
+            return builder.registerMaterial(material);
         }
 
         std::unordered_map<const ufbx_material*, Handle<Material>> createMaterials(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
+            SceneBuilder& builder,
             const std::filesystem::path& modelDirectory,
             const ufbx_scene& sourceScene
         ) {
@@ -291,8 +272,7 @@ namespace tr::Loading {
                         return;
                     }
                     const auto index = loadTexture(
-                        resources,
-                        scene,
+                        builder,
                         modelDirectory,
                         map.texture,
                         colorSpace,
@@ -337,8 +317,7 @@ namespace tr::Loading {
                     TextureColorSpace::Linear
                 );
 
-                const auto handle = resources.uploadMaterial(material);
-                scene.own(handle);
+                const auto handle = builder.registerMaterial(material);
                 result.emplace(source, handle);
             }
             return result;
@@ -347,12 +326,10 @@ namespace tr::Loading {
         struct ImportedMesh {
             Handle<Mesh> mesh;
             std::vector<uint32_t> materialSlots;
-            MeshBounds bounds;
         };
 
         ImportedMesh createMesh(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
+            SceneBuilder& builder,
             const ufbx_mesh& source
         ) {
             if (source.num_triangles == 0 || !source.vertex_position.exists) {
@@ -470,107 +447,90 @@ namespace tr::Loading {
             flatVertices.resize(numVertices);
             mesh.vertices = std::move(flatVertices);
             convertToLeftHanded(mesh);
-            const auto bounds = scene.registerMesh(mesh);
-            const auto meshHandle = resources.uploadMesh(mesh);
-            scene.own(meshHandle);
+            mesh.recalculateBounds();
+
+            const auto handle = builder.registerMesh(mesh);
 
             return {
-                meshHandle,
-                std::move(materialSlots),
-                bounds
+                handle,
+                std::move(materialSlots)
             };
-        }
-
-        void loadFbx(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
-            const std::filesystem::path& path
-        ) {
-            ufbx_load_opts options{};
-            options.generate_missing_normals = true;
-            options.ignore_animation = true;
-            options.ignore_missing_external_files = true;
-            options.use_blender_pbr_material = true;
-            // Normalize source axes before the shared RH-to-LH conversion.
-            options.target_axes = {
-                UFBX_COORDINATE_AXIS_POSITIVE_X,
-                UFBX_COORDINATE_AXIS_POSITIVE_Y,
-                UFBX_COORDINATE_AXIS_POSITIVE_Z
-            };
-            options.target_unit_meters = 1.0;
-
-            const std::u8string filename = path.u8string();
-            ufbx_error error{};
-            std::unique_ptr<ufbx_scene, SceneDeleter> sourceScene(
-                ufbx_load_file_len(
-                    reinterpret_cast<const char*>(filename.data()),
-                    filename.size(),
-                    &options,
-                    &error
-                )
-            );
-            if (!sourceScene) {
-                char description[1024]{};
-                ufbx_format_error(description, sizeof(description), &error);
-                throw ImportError(fmt::format("Couldn't load FBX file: {}", description));
-            }
-
-            const auto materials = createMaterials(
-                scene,
-                resources,
-                path.parent_path(),
-                *sourceScene
-            );
-            const auto defaultMaterial = createDefaultMaterial(scene, resources);
-            std::unordered_map<const ufbx_mesh*, ImportedMesh> meshes;
-            meshes.reserve(sourceScene->meshes.count);
-            for (const ufbx_mesh* sourceMesh : sourceScene->meshes) {
-                meshes.emplace(sourceMesh, createMesh(scene, resources, *sourceMesh));
-            }
-            for (const ufbx_node* node : sourceScene->nodes) {
-                if (!node->mesh) {
-                    continue;
-                }
-                const auto foundMesh = meshes.find(node->mesh);
-                if (foundMesh == meshes.end() || !foundMesh->second.mesh.isValid()) {
-                    continue;
-                }
-
-                auto object = std::make_unique<GameObject>();
-                object->name = toString(node->name);
-                if (object->name.empty()) {
-                    object->name = toString(node->mesh->name);
-                }
-                object->mesh = foundMesh->second.mesh;
-                object->transform = Transform::fromTransform(convertToLeftHanded(toGlm(node->geometry_to_world)));
-                scene.includeBounds(foundMesh->second.bounds, object->transform.getMatrix());
-                for (uint32_t materialSlot : foundMesh->second.materialSlots) {
-                    if (materialSlot < node->materials.count) {
-                        const auto foundMaterial = materials.find(
-                            node->materials.data[materialSlot]
-                        );
-                        object->materials.push_back(
-                            foundMaterial != materials.end()
-                                ? foundMaterial->second
-                                : defaultMaterial
-                        );
-                    }
-                    else {
-                        object->materials.push_back(defaultMaterial);
-                    }
-                }
-                scene.getObjects().push_back(std::move(object));
-            }
         }
     }
 
-    void FBXImporter::load(
-        Scene& scene,
-        Rendering::RenderingResources& resources,
-        const std::filesystem::path& path
-    ) const {
-        if (equalsIgnoreCase(path.extension().string(), ".fbx")) {
-            loadFbx(scene, resources, path);
+    void loadFBX(const std::filesystem::path& path, SceneBuilder& builder) {
+        ufbx_load_opts options{};
+        options.generate_missing_normals = true;
+        options.ignore_animation = true;
+        options.ignore_missing_external_files = true;
+        options.use_blender_pbr_material = true;
+        // Normalize source axes before the shared RH-to-LH conversion.
+        options.target_axes = {
+            UFBX_COORDINATE_AXIS_POSITIVE_X,
+            UFBX_COORDINATE_AXIS_POSITIVE_Y,
+            UFBX_COORDINATE_AXIS_POSITIVE_Z
+        };
+        options.target_unit_meters = 1.0;
+
+        const std::u8string filename = path.u8string();
+        ufbx_error error{};
+        std::unique_ptr<ufbx_scene, SceneDeleter> sourceScene(
+            ufbx_load_file_len(
+                reinterpret_cast<const char*>(filename.data()),
+                filename.size(),
+                &options,
+                &error
+            )
+        );
+        if (!sourceScene) {
+            char description[1024]{};
+            ufbx_format_error(description, sizeof(description), &error);
+            throw ImportError(fmt::format("Couldn't load FBX file: {}", description));
+        }
+
+        const auto materials = createMaterials(
+            builder,
+            path.parent_path(),
+            *sourceScene
+        );
+        const auto defaultMaterial = createDefaultMaterial(builder);
+        std::unordered_map<const ufbx_mesh*, ImportedMesh> meshes;
+        meshes.reserve(sourceScene->meshes.count);
+        for (const ufbx_mesh* sourceMesh : sourceScene->meshes) {
+            meshes.emplace(sourceMesh, createMesh(builder, *sourceMesh));
+        }
+        for (const ufbx_node* node : sourceScene->nodes) {
+            if (!node->mesh) {
+                continue;
+            }
+            const auto foundMesh = meshes.find(node->mesh);
+            if (foundMesh == meshes.end() || !foundMesh->second.mesh.isValid()) {
+                continue;
+            }
+
+            GameObject object;
+            object.name = toString(node->name);
+            if (object.name.empty()) {
+                object.name = toString(node->mesh->name);
+            }
+            object.mesh = foundMesh->second.mesh;
+            object.transform = Transform::fromTransform(convertToLeftHanded(toGlm(node->geometry_to_world)));
+            for (uint32_t materialSlot : foundMesh->second.materialSlots) {
+                if (materialSlot < node->materials.count) {
+                    const auto foundMaterial = materials.find(
+                        node->materials.data[materialSlot]
+                    );
+                    object.materials.push_back(
+                        foundMaterial != materials.end()
+                            ? foundMaterial->second
+                            : defaultMaterial
+                    );
+                }
+                else {
+                    object.materials.push_back(defaultMaterial);
+                }
+            }
+            builder.addObject(std::move(object));
         }
     }
 }

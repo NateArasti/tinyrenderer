@@ -1,21 +1,19 @@
-#include "gltf_importer.h"
+#include "model_loader.h"
+#include "scene_builder.h"
 
 #include <algorithm>
-#include <cctype>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
-#include <fmt/base.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 
@@ -26,30 +24,18 @@
 #include "gameobject.h"
 #include "material.h"
 #include "mesh.h"
-#include "rhi.h"
 #include "transform.h"
 #include "coordinate_conversion.h"
 
 namespace tr::Loading {
-    namespace {
-        using namespace tr::Data;
+    using namespace tr::Data;
 
+    namespace {
         enum class TextureChannel : uint8_t {
             All,
             Green,
             Blue
         };
-
-        bool equalsIgnoreCase(std::string_view a, std::string_view b) {
-            return std::ranges::equal(
-                a,
-                b,
-                [](char lhs, char rhs) {
-                    return std::tolower(static_cast<unsigned char>(lhs))
-                        == std::tolower(static_cast<unsigned char>(rhs));
-                }
-            );
-        }
 
         glm::mat4 toGlm(const fastgltf::math::fmat4x4& source) {
             glm::mat4 result(1.0f);
@@ -85,8 +71,7 @@ namespace tr::Loading {
         }
 
         uint32_t loadTexture(
-            Rendering::RenderingResources& resources,
-            Scene& scene,
+            SceneBuilder& builder,
             const fastgltf::Asset& asset,
             size_t textureIndex,
             TextureColorSpace colorSpace,
@@ -160,27 +145,22 @@ namespace tr::Loading {
                 }
             }
 
-            const auto handle = resources.uploadTexture(texture);
-            scene.own(handle);
-            const auto index = static_cast<uint32_t>(scene.ownedTextures.size());
+            const auto index = builder.registerTexture(texture);
             cache.emplace(cacheKey, index);
             return index;
         }
 
-        Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
+        Handle<Material> createDefaultMaterial(SceneBuilder& builder) {
             Material material;
             material.name = "default";
             material.set("diffuseColor", glm::vec4(1.0f));
             material.set("ambientColor", glm::vec4(glm::vec3(0.03f), 1.0f));
             material.set("specularColor", glm::vec4(glm::vec3(0.04f), 1.0f));
-            const auto handle = resources.uploadMaterial(material);
-            scene.own(handle);
-            return handle;
+            return builder.registerMaterial(material);
         }
 
         std::vector<Handle<Material>> createMaterials(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
+            SceneBuilder& builder,
             const fastgltf::Asset& asset
         ) {
             std::vector<Handle<Material>> result;
@@ -216,8 +196,7 @@ namespace tr::Loading {
                     TextureChannel channel = TextureChannel::All
                 ) {
                     const auto index = loadTexture(
-                        resources,
-                        scene,
+                        builder,
                         asset,
                         textureIndex,
                         colorSpace,
@@ -265,9 +244,7 @@ namespace tr::Loading {
                     );
                 }
 
-                const auto handle = resources.uploadMaterial(material);
-                scene.own(handle);
-                result.push_back(handle);
+                result.push_back(builder.registerMaterial(material));
             }
             return result;
         }
@@ -358,12 +335,10 @@ namespace tr::Loading {
         struct ImportedMesh {
             Handle<Mesh> mesh;
             std::vector<Handle<Material>> materials;
-            MeshBounds bounds;
         };
 
         ImportedMesh createMesh(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
+            SceneBuilder& builder,
             const fastgltf::Asset& asset,
             const fastgltf::Mesh& sourceMesh,
             const std::vector<Handle<Material>>& materials,
@@ -523,122 +498,104 @@ namespace tr::Loading {
                 return {};
             }
             convertToLeftHanded(mesh);
-            const auto handle = resources.uploadMesh(mesh);
-            const auto bounds = scene.registerMesh(mesh);
-            scene.own(handle);
+            
+            mesh.recalculateBounds();
+            const auto handle = builder.registerMesh(mesh);
             return {
                 handle,
-                std::move(meshMaterials),
-                bounds
+                std::move(meshMaterials)
             };
-        }
-
-        void loadGltf(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
-            const std::filesystem::path& path
-        ) {
-            auto data = fastgltf::GltfDataBuffer::FromPath(path);
-            if (data.error() != fastgltf::Error::None) {
-                throw ImportError(fmt::format(
-                    "Couldn't open glTF file: {}",
-                    fastgltf::getErrorMessage(data.error())
-                ));
-            }
-            constexpr auto options =
-                fastgltf::Options::LoadExternalBuffers |
-                fastgltf::Options::LoadExternalImages;
-
-            fastgltf::Parser parser(
-                fastgltf::Extensions::KHR_mesh_quantization |
-                fastgltf::Extensions::KHR_materials_emissive_strength |
-                fastgltf::Extensions::KHR_lights_punctual
-            );
-            auto loaded = parser.loadGltf(data.get(), path.parent_path(), options);
-            if (loaded.error() != fastgltf::Error::None) {
-                throw ImportError(fmt::format(
-                    "Couldn't load glTF file: {}",
-                    fastgltf::getErrorMessage(loaded.error())
-                ));
-            }
-
-            auto asset = std::move(loaded.get());
-            const auto materials = createMaterials(scene, resources, asset);
-            const auto defaultMaterial = createDefaultMaterial(scene, resources);
-            std::vector<ImportedMesh> meshes(asset.meshes.size());
-            for (size_t meshIndex = 0; meshIndex < asset.meshes.size(); ++meshIndex) {
-                meshes[meshIndex] = createMesh(
-                    scene,
-                    resources,
-                    asset,
-                    asset.meshes[meshIndex],
-                    materials,
-                    defaultMaterial
-                );
-            }
-            const auto visitNode = [&](
-                size_t nodeIndex,
-                const fastgltf::math::fmat4x4& parent,
-                const auto& self
-            ) -> void {
-                if (nodeIndex >= asset.nodes.size()) {
-                    return;
-                }
-                const auto& node = asset.nodes[nodeIndex];
-                const auto transform = fastgltf::getTransformMatrix(node, parent);
-                if (node.meshIndex && *node.meshIndex < meshes.size()) {
-                    const auto& importedMesh = meshes[*node.meshIndex];
-                    if (importedMesh.mesh.isValid()) {
-                        auto object = std::make_unique<GameObject>();
-                        object->name = node.name.empty()
-                            ? std::string(asset.meshes[*node.meshIndex].name)
-                            : std::string(node.name);
-                        object->mesh = importedMesh.mesh;
-                        object->materials = importedMesh.materials;
-                        object->transform = Transform::fromTransform(convertToLeftHanded(toGlm(transform)));
-                        scene.includeBounds(importedMesh.bounds, object->transform.getMatrix());
-                        scene.getObjects().push_back(std::move(object));
-                    }
-                }
-                for (size_t child : node.children) {
-                    self(child, transform, self);
-                }
-            };
-
-            if (!asset.scenes.empty()) {
-                const size_t sceneIndex = asset.defaultScene.value_or(0);
-                if (sceneIndex < asset.scenes.size()) {
-                    for (size_t nodeIndex : asset.scenes[sceneIndex].nodeIndices) {
-                        visitNode(nodeIndex, fastgltf::math::fmat4x4(), visitNode);
-                    }
-                }
-            }
-            else {
-                std::vector<bool> isChild(asset.nodes.size(), false);
-                for (const auto& node : asset.nodes) {
-                    for (size_t child : node.children) {
-                        if (child < isChild.size()) {
-                            isChild[child] = true;
-                        }
-                    }
-                }
-                for (size_t nodeIndex = 0; nodeIndex < asset.nodes.size(); ++nodeIndex) {
-                    if (!isChild[nodeIndex]) {
-                        visitNode(nodeIndex, fastgltf::math::fmat4x4(), visitNode);
-                    }
-                }
-            }
         }
     }
 
-    void GLTFImporter::load(
-        Scene& scene,
-        Rendering::RenderingResources& resources,
-        const std::filesystem::path& path
-    ) const {
-        const std::string extension = path.extension().string();
-        if (equalsIgnoreCase(extension, ".gltf") || equalsIgnoreCase(extension, ".glb")) {
-            loadGltf(scene, resources, path);
+    void loadGLTF(const std::filesystem::path& path, SceneBuilder& builder) {
+        auto data = fastgltf::GltfDataBuffer::FromPath(path);
+        if (data.error() != fastgltf::Error::None) {
+            throw ImportError(fmt::format(
+                "Couldn't open glTF file: {}",
+                fastgltf::getErrorMessage(data.error())
+            ));
+        }
+        constexpr auto options =
+            fastgltf::Options::LoadExternalBuffers |
+            fastgltf::Options::LoadExternalImages;
+
+        fastgltf::Parser parser(
+            fastgltf::Extensions::KHR_mesh_quantization |
+            fastgltf::Extensions::KHR_materials_emissive_strength |
+            fastgltf::Extensions::KHR_lights_punctual
+        );
+        auto loaded = parser.loadGltf(data.get(), path.parent_path(), options);
+        if (loaded.error() != fastgltf::Error::None) {
+            throw ImportError(fmt::format(
+                "Couldn't load glTF file: {}",
+                fastgltf::getErrorMessage(loaded.error())
+            ));
+        }
+
+        auto asset = std::move(loaded.get());
+        const auto materials = createMaterials(builder, asset);
+        const auto defaultMaterial = createDefaultMaterial(builder);
+        std::vector<ImportedMesh> meshes(asset.meshes.size());
+        for (size_t meshIndex = 0; meshIndex < asset.meshes.size(); ++meshIndex) {
+            meshes[meshIndex] = createMesh(
+                builder,
+                asset,
+                asset.meshes[meshIndex],
+                materials,
+                defaultMaterial
+            );
+        }
+        const auto visitNode = [&](
+            size_t nodeIndex,
+            const fastgltf::math::fmat4x4& parent,
+            const auto& self
+        ) -> void {
+            if (nodeIndex >= asset.nodes.size()) {
+                return;
+            }
+            const auto& node = asset.nodes[nodeIndex];
+            const auto transform = fastgltf::getTransformMatrix(node, parent);
+            if (node.meshIndex && *node.meshIndex < meshes.size()) {
+                const auto& importedMesh = meshes[*node.meshIndex];
+                if (importedMesh.mesh.isValid()) {
+                    GameObject object;
+                    object.name = node.name.empty()
+                        ? std::string(asset.meshes[*node.meshIndex].name)
+                        : std::string(node.name);
+                    object.mesh = importedMesh.mesh;
+                    object.materials = importedMesh.materials;
+                    object.transform = Transform::fromTransform(convertToLeftHanded(toGlm(transform)));
+                    builder.addObject(std::move(object));
+                }
+            }
+            for (size_t child : node.children) {
+                self(child, transform, self);
+            }
+        };
+
+        if (!asset.scenes.empty()) {
+            const size_t sceneIndex = asset.defaultScene.value_or(0);
+            if (sceneIndex < asset.scenes.size()) {
+                for (size_t nodeIndex : asset.scenes[sceneIndex].nodeIndices) {
+                    visitNode(nodeIndex, fastgltf::math::fmat4x4(), visitNode);
+                }
+            }
+        }
+        else {
+            std::vector<bool> isChild(asset.nodes.size(), false);
+            for (const auto& node : asset.nodes) {
+                for (size_t child : node.children) {
+                    if (child < isChild.size()) {
+                        isChild[child] = true;
+                    }
+                }
+            }
+            for (size_t nodeIndex = 0; nodeIndex < asset.nodes.size(); ++nodeIndex) {
+                if (!isChild[nodeIndex]) {
+                    visitNode(nodeIndex, fastgltf::math::fmat4x4(), visitNode);
+                }
+            }
         }
     }
 }

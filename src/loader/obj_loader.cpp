@@ -1,4 +1,5 @@
-#include "obj_importer.h"
+#include "model_loader.h"
+#include "scene_builder.h"
 
 #include <algorithm>
 #include <cctype>
@@ -8,13 +9,12 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
-#include <fmt/base.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include "rapidobj/rapidobj.hpp"
@@ -27,12 +27,11 @@
 #include "material.h"
 #include "mesh.h"
 #include "coordinate_conversion.h"
-#include "rhi.h"
 
 namespace tr::Loading {
-    namespace {
-        using namespace tr::Data;
+    using namespace tr::Data;
 
+    namespace {
         struct VertexKey {
             int position;
             int texcoord;
@@ -58,20 +57,8 @@ namespace tr::Loading {
             }
         };
 
-        bool equalsIgnoreCase(std::string_view a, std::string_view b) {
-            return std::ranges::equal(
-                a,
-                b,
-                [](char lhs, char rhs) {
-                    return std::tolower(static_cast<unsigned char>(lhs))
-                        == std::tolower(static_cast<unsigned char>(rhs));
-                }
-            );
-        }
-
         uint32_t loadTexture(
-            Rendering::RenderingResources& resources,
-            Scene& scene,
+            SceneBuilder& builder,
             const std::filesystem::path& modelDirectory,
             std::string_view textureName,
             TextureColorSpace colorSpace,
@@ -149,25 +136,20 @@ namespace tr::Loading {
                 std::swap_ranges(topBegin, topBegin + rowSize, bottomBegin);
             }
 
-            const auto handle = resources.uploadTexture(texture);
-            scene.own(handle);
-            const auto index = static_cast<uint32_t>(scene.ownedTextures.size());
+            const auto index = builder.registerTexture(texture);
             cache.emplace(std::move(cacheKey), index);
             return index;
         }
 
-        Handle<Material> createDefaultMaterial(Scene& scene, Rendering::RenderingResources& resources) {
+        Handle<Material> createDefaultMaterial(SceneBuilder& builder) {
             Material material;
             material.name = "default";
             material.set("diffuseColor", glm::vec4(1.0f));
-            const auto handle = resources.uploadMaterial(material);
-            scene.own(handle);
-            return handle;
+            return builder.registerMaterial(material);
         }
 
         std::vector<Handle<Material>> createMaterials(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
+            SceneBuilder& builder,
             const std::filesystem::path& modelDirectory,
             const rapidobj::Materials& sourceMaterials
         ) {
@@ -187,8 +169,7 @@ namespace tr::Loading {
                     TextureColorSpace colorSpace
                 ) {
                     const auto index = loadTexture(
-                        resources,
-                        scene,
+                        builder,
                         modelDirectory,
                         textureName,
                         colorSpace,
@@ -274,9 +255,7 @@ namespace tr::Loading {
                 const float roughness = source.roughness > 0.0f ? source.roughness : legacyRoughness;
                 material.set("roughnessFactor", std::clamp(roughness, 0.04f, 1.0f));
 
-                const auto handle = resources.uploadMaterial(material);
-                scene.own(handle);
-                materials.push_back(handle);
+                materials.push_back(builder.registerMaterial(material));
             }
             return materials;
         }
@@ -329,8 +308,7 @@ namespace tr::Loading {
         }
 
         void createMesh(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
+            SceneBuilder& builder,
             const rapidobj::Attributes& attributes,
             const rapidobj::Shape& shape,
             const std::vector<Handle<Material>>& materials,
@@ -343,12 +321,11 @@ namespace tr::Loading {
             Mesh mesh;
             mesh.name = shape.name;
             std::unordered_map<VertexKey, uint32_t, VertexKeyHash> vertexLookup;
-            std::vector<bool> needsNormal;
             std::vector<int32_t> materialOrder;
             std::unordered_map<int32_t, size_t> materialBuckets;
             std::vector<std::vector<uint32_t>> indicesByMaterial;
 
-            bool hasNormals = false;
+            bool hasNormals = true;
 
             for (size_t face = 0; face < shape.mesh.material_ids.size(); ++face) {
                 const int32_t materialId = shape.mesh.material_ids[face];
@@ -380,14 +357,13 @@ namespace tr::Loading {
                     );
                     if (vertexInserted) {
                         mesh.vertices.push_back(makeVertex(attributes, sourceIndex));
-                        needsNormal.push_back(missingNormal);
                     }
                     bucket.push_back(vertexIt->second);
                 }
             }
 
-            auto object = std::make_unique<GameObject>();
-            object->name = shape.name;
+            GameObject object;
+            object.name = shape.name;
             for (size_t bucket = 0; bucket < indicesByMaterial.size(); ++bucket) {
                 const auto& sourceIndices = indicesByMaterial[bucket];
                 mesh.indices.insert(mesh.indices.end(), sourceIndices.begin(), sourceIndices.end());
@@ -395,10 +371,10 @@ namespace tr::Loading {
 
                 const int32_t materialId = materialOrder[bucket];
                 if (materialId >= 0 && static_cast<size_t>(materialId) < materials.size()) {
-                    object->materials.push_back(materials[materialId]);
+                    object.materials.push_back(materials[materialId]);
                 }
                 else {
-                    object->materials.push_back(defaultMaterial);
+                    object.materials.push_back(defaultMaterial);
                 }
             }
 
@@ -406,59 +382,40 @@ namespace tr::Loading {
             if (!hasNormals) {
                 mesh.recalculateNormals();
             }
+            mesh.recalculateBounds();
 
-            const auto bounds = scene.registerMesh(mesh);
-            scene.includeBounds(bounds);
-            const auto handle = resources.uploadMesh(mesh);
-            scene.own(handle);
-            object->mesh = handle;
-            scene.getObjects().push_back(std::move(object));
-        }
-
-        void loadObj(
-            Scene& scene,
-            Rendering::RenderingResources& resources,
-            const std::filesystem::path& path
-        ) {
-            rapidobj::Result result = rapidobj::ParseFile(path);
-
-            if (result.error) {
-                throw ImportError(fmt::format(
-                    "Couldn't load OBJ file: {}",
-                    result.error.code.message()
-                ));
-            }
-
-            bool success = rapidobj::Triangulate(result);
-            if (!success) {
-                throw ImportError(fmt::format(
-                    "Couldn't triangulate OBJ file: {}",
-                    result.error.code.message()
-                ));
-            }
-
-            const auto materials = createMaterials(scene, resources, path.parent_path(), result.materials);
-            const auto defaultMaterial = createDefaultMaterial(scene, resources);
-            for (const auto& shape : result.shapes) {
-                createMesh(
-                    scene,
-                    resources,
-                    result.attributes,
-                    shape,
-                    materials,
-                    defaultMaterial
-                );
-            }
+            object.mesh = builder.registerMesh(mesh);
+            builder.addObject(std::move(object));
         }
     }
 
-    void OBJImporter::load(
-        Scene& scene,
-        Rendering::RenderingResources& resources,
-        const std::filesystem::path& path
-    ) const {
-        if (equalsIgnoreCase(path.extension().string(), ".obj")) {
-            loadObj(scene, resources, path);
+    void loadOBJ(const std::filesystem::path& path, SceneBuilder& builder) {
+        rapidobj::Result result = rapidobj::ParseFile(path);
+
+        if (result.error) {
+            throw ImportError(fmt::format(
+                "Couldn't load OBJ file: {}",
+                result.error.code.message()
+            ));
+        }
+
+        if (!rapidobj::Triangulate(result)) {
+            throw ImportError(fmt::format(
+                "Couldn't triangulate OBJ file: {}",
+                result.error.code.message()
+            ));
+        }
+
+        const auto materials = createMaterials(builder, path.parent_path(), result.materials);
+        const auto defaultMaterial = createDefaultMaterial(builder);
+        for (const auto& shape : result.shapes) {
+            createMesh(
+                builder,
+                result.attributes,
+                shape,
+                materials,
+                defaultMaterial
+            );
         }
     }
 }

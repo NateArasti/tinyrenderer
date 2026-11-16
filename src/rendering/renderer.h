@@ -62,9 +62,10 @@ namespace tr::Rendering {
             FrameContext& frame,
             const tr::Data::Scene& scene,
             const tr::Data::Camera& camera,
-            const tr::Data::Environment& environment
+            const tr::Data::Environment& environment,
+            float sceneScale
         );
-        void sortTransparentQueue(const tr::Data::Scene& scene, const tr::Data::Camera& camera);
+        void sortTransparentQueue(const tr::Data::Camera& camera);
         void setupGraph(
             RenderGraph& graph,
             const FrameContext& frame,
@@ -85,16 +86,17 @@ namespace tr::Rendering {
         RHI& getInterface() { return _rhi; }
         RenderingResources& getResources() { return _rhi.resources(); }
 
-        void prepareScene(tr::Data::Scene& scene);
-        void unloadSceneResources(tr::Data::Scene& scene);
-        void updateSceneMatrix(tr::Data::Scene& scene);
+        void prepareScene(const tr::Data::Scene& scene);
+        void unloadSceneResources(const tr::Data::Scene& scene);
+        void updateSceneMatrix(const tr::Data::Scene& scene, float sceneScale);
         void prepareUI();
         void render(
             const tr::Data::Scene& scene,
             const tr::Data::Camera& camera,
             const tr::Data::Environment& env,
             const tr::Data::PostProcessingData& postProcessingData,
-            ImDrawData* uiDrawData
+            ImDrawData* uiDrawData,
+            float sceneScale
         );
     };
 }

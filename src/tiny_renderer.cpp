@@ -23,9 +23,10 @@
 #include "free_move_controller.h"
 #include "input.h"
 #include "orbit_controller.h"
-#include "pbr.h"
 #include "renderer.h"
-#include "loader.h"
+#include "demo_scenes.h"
+#include "model_loader.h"
+#include "scene_builder.h"
 #include "ui_data.h"
 #include "ui_provider.h"
 #include "vulkan_rhi.h"
@@ -46,7 +47,7 @@ namespace tr {
     }
 
     struct TinyRenderer::Impl {
-        using SceneLoader = void (*)(Data::Scene&, Rendering::RenderingResources&);
+        using SceneLoader = void (*)(Loading::SceneBuilder&);
 
         App::Application application{
             .name = APP_NAME,
@@ -59,7 +60,9 @@ namespace tr {
         std::unique_ptr<Rendering::RHI> rhi;
         std::unique_ptr<Rendering::Renderer> renderer;
         
-        std::unique_ptr<Data::Scene> currentScene;
+        std::unique_ptr<const Data::Scene> currentScene;
+        float sceneScale = 1.0f;
+        
         Data::Environment environment;
         Data::PostProcessingData postProcessingData;
 
@@ -74,7 +77,8 @@ namespace tr {
         UI::UIWindow cameraWindow;
         UI::UIWindow postProcessingWindow;
         std::string gpuName;
-        std::string modelName = "Default Scene";
+        std::string modelName;
+        size_t selectedDemoScene = 0;
         std::string importError;
         std::vector<uint32_t> supportedMsaaSamples;
         float lightYaw = 0.0f;
@@ -103,13 +107,22 @@ namespace tr {
 
             setupUI();
             setupRendering();
-            loadScene(Loading::Loader::loadDefaultScene);
+            auto startScene = Loading::getDemoScenes()[0];
+            modelName = startScene.name;
+            loadScene(startScene.build);
             setupCamera();
             setupLight();
 
             gpuName = rhi->getDeviceName();
             supportedMsaaSamples = rhi->getSupportedMsaaSamples();
             syncSceneUI();
+        }
+
+        ~Impl() {
+            if (currentScene) {
+                renderer->unloadSceneResources(*currentScene);
+            }
+            renderer->getResources().destroyCubemap(environment.skyboxHandle);
         }
 
         void setupUI() {
@@ -120,7 +133,7 @@ namespace tr {
                 .drawCallback = [this]() {
                     ImGui::PushItemWidth(70.0f);
                     ImGui::Text("FPS: %d", static_cast<int>(1.0f / smoothedDeltaTime));
-                    ImGui::TextWrapped(gpuName.c_str());
+                    ImGui::TextWrapped("%s", gpuName.c_str());
 
                     const uint32_t currentSamples = rhi->getMsaaSamples();
                     const std::string preview = std::to_string(currentSamples) + "x";
@@ -153,31 +166,48 @@ namespace tr {
             modelWindow = UI::UIWindow{
                 .name = "Model",
                 .width = 250.0f,
-                .height = 180.0f,
+                .height = 200.0f,
                 .drawCallback = [this]() {
                     ImGui::PushItemWidth(120.0f);
                     if (ImGui::Button("Load Model")) {
                         loadSelectedModel();
                     }
+                    const auto demos = Loading::getDemoScenes();
+                    const auto& style = ImGui::GetStyle();
+                    const float buttonWidth = ImGui::CalcTextSize("Load Demo").x + 2.0f * style.FramePadding.x;
+                    ImGui::SetNextItemWidth(std::max(
+                        1.0f, ImGui::GetContentRegionAvail().x - buttonWidth - style.ItemSpacing.x
+                    ));
+                    if (ImGui::BeginCombo("##DemoScene", demos[selectedDemoScene].name.data())) {
+                        for (size_t i = 0; i < demos.size(); ++i) {
+                            const bool selected = i == selectedDemoScene;
+                            if (ImGui::Selectable(demos[i].name.data(), selected)) {
+                                selectedDemoScene = i;
+                            }
+                            if (selected) {
+                                ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
                     ImGui::SameLine();
-                    if (ImGui::Button("Load Default Model")) {
-                        loadScene(Loading::Loader::loadDefaultScene);
-                        modelName = "Default Scene";
+                    if (ImGui::Button("Load Demo")) {
+                        const auto& demo = demos[selectedDemoScene];
+                        loadScene(demo.build);
+                        modelName = demo.name;
                         syncSceneUI();
                     }
                     ImGui::Separator();
-                    ImGui::TextWrapped(modelName.c_str());
+                    ImGui::TextWrapped("%s", modelName.c_str());
                     ImGui::Separator();
-                    const glm::vec3 bounds = currentScene->getSceneBounds().second * currentScene->scale;
+                    const glm::vec3 bounds = currentScene->getBounds().getSize() * sceneScale;
                     ImGui::TextWrapped("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
-                    ImGui::TextWrapped("Vertices: %zu", currentScene->verticesCount);
-                    ImGui::TextWrapped("Polygons: %zu", currentScene->polygonCount);
+                    ImGui::TextWrapped("Vertices: %zu", currentScene->getVertCount());
+                    ImGui::TextWrapped("Polygons: %zu", currentScene->getTrisCount());
                     ImGui::TextWrapped("Objects: %zu", currentScene->getObjects().size());
                     ImGui::Separator();
-                    auto prevScale = currentScene->scale;
-                    currentScene->scale = std::max(currentScene->scale, 0.001f);
-                    ImGui::DragFloat("Scale", &currentScene->scale, 0.01f, 0.001f, 1000.0f, "%.3f");
-                    if (prevScale != currentScene->scale) {
+                    if (ImGui::DragFloat("Scale", &sceneScale, 0.01f, 0.001f, 1000.0f, "%.3f")) {
+                        sceneScale = std::max(sceneScale, 0.001f);
                         needToUpdateSceneMatrix = true;
                     }
                     ImGui::PopItemWidth();
@@ -328,7 +358,7 @@ namespace tr {
                         tr::Data::toneMappingNames,
                         IM_ARRAYSIZE(tr::Data::toneMappingNames))
                     ) {
-                        postProcessingData.tonemapping = static_cast<Tonemapping>(selected);
+                        postProcessingData.tonemapping = static_cast<Data::Tonemapping>(selected);
                     }
                     ImGui::PopItemWidth();
                 }
@@ -340,13 +370,12 @@ namespace tr {
 
         void setupRendering() {
             rhi = std::make_unique<Rendering::Vulkan::VulkanRHI>(application);
-
             renderer = std::make_unique<Rendering::Renderer>(*rhi);
         }
 
         void setupCamera() {
-            camera.transform.position = glm::vec3(0.0f, 20.0f, -24.0f);
-            camera.transform.eulerAngles = glm::vec3(40.0f, 0.0f, 0.0f);
+            camera.transform.position = glm::vec3(-12.0f, 15.0f, -12.0f);
+            camera.transform.eulerAngles = glm::vec3(40.0f, 45.0f, 0.0f);
             camera.fov = 60;
             camera.near = 0.1f;
             camera.far = 150;
@@ -394,25 +423,20 @@ namespace tr {
             }
         }
 
-        void setScene(std::unique_ptr<Data::Scene> scene) {
+        void setScene(std::unique_ptr<const Data::Scene> scene) {
             if (currentScene) {
                 renderer->unloadSceneResources(*currentScene);
             }
             currentScene = std::move(scene);
+            sceneScale = 1.0f;
             renderer->prepareScene(*currentScene);
             needToUpdateSceneMatrix = true;
         }
 
         void loadScene(SceneLoader load) {
-            auto scene = std::make_unique<Data::Scene>();
-            try {
-                load(*scene, renderer->getResources());
-            }
-            catch (...) {
-                renderer->unloadSceneResources(*scene);
-                throw;
-            }
-            setScene(std::move(scene));
+            Loading::SceneBuilder builder(renderer->getResources());
+            load(builder);
+            setScene(builder.build());
         }
 
         void loadSkybox() {
@@ -437,7 +461,7 @@ namespace tr {
             environment.skyboxHandle = {};
 
             try {
-                environment.skyboxHandle = tr::Loading::CubemapLoader::loadCubemap(path.value(), renderer->getResources());
+                environment.skyboxHandle = tr::Loading::loadCubemap(path.value(), renderer->getResources());
             }
             catch (const Loading::ImportError& error) {
                 importError = error.what();
@@ -466,23 +490,20 @@ namespace tr {
             }
 
             fmt::println("Loading file {}", path->string());
-            auto scene = std::make_unique<Data::Scene>();
             try {
-                Loading::Loader::loadModel(*scene, renderer->getResources(), *path);
+                Loading::SceneBuilder builder(renderer->getResources());
+                Loading::loadModel(*path, builder);
+                setScene(builder.build());
             }
             catch (const Loading::ImportError& error) {
-                renderer->unloadSceneResources(*scene);
                 importError = error.what();
                 fmt::println("Model import failed: {}", importError);
-                loadScene(Loading::Loader::loadDefaultScene);
-                modelName = "Default Scene";
                 importErrorPopupPending = true;
                 showUI = true;
                 syncSceneUI();
                 return;
             }
 
-            setScene(std::move(scene));
             modelName = path->filename().string();
             syncSceneUI();
         }
@@ -571,7 +592,7 @@ namespace tr {
                 }
 
                 if (needToUpdateSceneMatrix) {
-                    renderer->updateSceneMatrix(*currentScene);
+                    renderer->updateSceneMatrix(*currentScene, sceneScale);
                     needToUpdateSceneMatrix = false;
                 }
 
@@ -580,7 +601,7 @@ namespace tr {
                 }
 
                 if (window.width() != 0 && window.height() != 0) {
-                    renderer->render(*currentScene, camera, environment, postProcessingData, uiDrawData);
+                    renderer->render(*currentScene, camera, environment, postProcessingData, uiDrawData, sceneScale);
                 }
             }
 
