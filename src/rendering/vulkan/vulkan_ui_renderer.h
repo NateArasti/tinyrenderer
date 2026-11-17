@@ -25,6 +25,6 @@ namespace tr::Rendering::Vulkan {
 
         void recreate();
         void beginFrame() override;
-        void draw(CommandBuffer& cmd, ImDrawData* drawData) override;
+        void draw(CommandBuffer& cmd, const UI::UIDrawData* drawData) override;
     };
 }

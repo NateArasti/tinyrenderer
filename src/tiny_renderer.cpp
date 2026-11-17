@@ -1,619 +1,114 @@
-#define GLM_ENABLE_EXPERIMENTAL
-
 #include "tiny_renderer.h"
 
-#include <algorithm>
 #include <cmath>
-#include <cstddef>
-#include <filesystem>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <vector>
 
 #include <fmt/base.h>
-#include <glm/glm.hpp>
-#include <imgui.h>
 
-#include "import_error.h"
-#include "application.h"
-#include "camera.h"
 #include "camera_controller.h"
-#include "file_picker.h"
-#include "free_move_controller.h"
-#include "input.h"
-#include "orbit_controller.h"
-#include "renderer.h"
 #include "demo_scenes.h"
-#include "model_loader.h"
-#include "scene_builder.h"
-#include "ui_data.h"
-#include "ui_provider.h"
+#include "renderer.h"
 #include "vulkan_rhi.h"
-#include "window.h"
-#include "cubemap_loader.h"
-#include "environment.h"
-#include "post_processing_data.h"
 
 namespace tr {
-    namespace {
-        enum class CameraControllerType {
-            FreeMove,
-            Orbit
-        };
+    TinyRenderer::TinyRenderer() {
+        fmt::println(
+            "Starting {} with ({}, {}) window. Version={}.",
+            application.name,
+            application.window->width(),
+            application.window->height(),
+            application.version
+        );
 
-        constexpr std::string_view APP_NAME = "tinyrenderer";
-        constexpr std::string_view APP_VERSION = "v0.0.1";
+        setupUI();
+        setupRendering();
+        auto startScene = Loading::getDemoScenes()[0];
+        modelName = startScene.name;
+        loadScene(startScene.build);
+        setupCamera();
+        setupLight();
+
+        gpuName = rhi->getDeviceName();
+        supportedMsaaSamples = rhi->getSupportedMsaaSamples();
+        syncSceneUI();
     }
 
-    struct TinyRenderer::Impl {
-        using SceneLoader = void (*)(Loading::SceneBuilder&);
+    TinyRenderer::~TinyRenderer() {
+        if (currentScene) {
+            renderer->unloadSceneResources(*currentScene);
+        }
+        if (environment.skyboxHandle.isValid()) {
+            renderer->getResources().destroyCubemap(environment.skyboxHandle);
+        }
+    }
 
-        App::Application application{
-            .name = APP_NAME,
-            .version = APP_VERSION,
-            .window = std::make_unique<App::Window>(1280, 720, APP_NAME)
+    void TinyRenderer::setupRendering() {
+        rhi = std::make_unique<Rendering::Vulkan::VulkanRHI>(application);
+        renderer = std::make_unique<Rendering::Renderer>(*rhi);
+    }
+
+    void TinyRenderer::setupLight() {
+        environment.directionalLight = {
+            .direction = glm::vec3(0.5f, -1.0f, -0.5f),
+            .intensity = 5.0f,
+            .color = glm::vec4(1.0f)
         };
-        App::Input input{ *application.window };
-        UI::UIProvider uiProvider{ *application.window, input };
+    }
 
-        std::unique_ptr<Rendering::RHI> rhi;
-        std::unique_ptr<Rendering::Renderer> renderer;
-        
-        std::unique_ptr<const Data::Scene> currentScene;
-        float sceneScale = 1.0f;
-        
-        Data::Environment environment;
-        Data::PostProcessingData postProcessingData;
+    void TinyRenderer::handleResize() {
+        App::Window& window = *application.window;
+        if (!window.wasResized()) return;
 
-        Data::Camera camera;
-        std::unique_ptr<Controllers::CameraController> cameraController;
-
-        UI::UIState uiState;
-        UI::UIWindow debugWindow;
-        UI::UIWindow modelWindow;
-        UI::UIWindow envWindow;
-        UI::UIWindow lightWindow;
-        UI::UIWindow cameraWindow;
-        UI::UIWindow postProcessingWindow;
-        std::string gpuName;
-        std::string modelName;
-        size_t selectedDemoScene = 0;
-        std::string importError;
-        std::vector<uint32_t> supportedMsaaSamples;
-        float lightYaw = 0.0f;
-        float lightPitch = 0.0f;
-        float smoothedDeltaTime = 1.0f / 60.0f;
-        CameraControllerType cameraControllerType = CameraControllerType::FreeMove;
-        float freeMoveSpeed = 10.0f;
-        float freeMoveShiftMultiplier = 2.5f;
-        float freeMoveSensitivity = 0.1f;
-        float orbitMaxRadius = 50.0f;
-        float orbitSensitivity = 0.2f;
-        float orbitZoomSensitivity = 0.75f;
-        bool fpsInitialized = false;
-        bool showUI = false;
-        bool importErrorPopupPending = false;
-        bool needToUpdateSceneMatrix = false;
-
-        Impl() {
-            fmt::println(
-                "Starting {} with ({}, {}) window. Version={}.",
-                application.name,
-                application.window->width(),
-                application.window->height(),
-                application.version
-            );
-
-            setupUI();
-            setupRendering();
-            auto startScene = Loading::getDemoScenes()[0];
-            modelName = startScene.name;
-            loadScene(startScene.build);
-            setupCamera();
-            setupLight();
-
-            gpuName = rhi->getDeviceName();
-            supportedMsaaSamples = rhi->getSupportedMsaaSamples();
-            syncSceneUI();
-        }
-
-        ~Impl() {
-            if (currentScene) {
-                renderer->unloadSceneResources(*currentScene);
-            }
-            renderer->getResources().destroyCubemap(environment.skyboxHandle);
-        }
-
-        void setupUI() {
-            debugWindow = UI::UIWindow{
-                .name = "Debug",
-                .width = 200.0f,
-                .height = 135.0f,
-                .drawCallback = [this]() {
-                    ImGui::PushItemWidth(70.0f);
-                    ImGui::Text("FPS: %d", static_cast<int>(1.0f / smoothedDeltaTime));
-                    ImGui::TextWrapped("%s", gpuName.c_str());
-
-                    const uint32_t currentSamples = rhi->getMsaaSamples();
-                    const std::string preview = std::to_string(currentSamples) + "x";
-                    if (ImGui::BeginCombo("MSAA", preview.c_str())) {
-                        for (uint32_t samples : supportedMsaaSamples) {
-                            const std::string label = std::to_string(samples) + "x";
-                            const bool selected = samples == currentSamples;
-                            if (ImGui::Selectable(label.c_str(), selected)) {
-                                rhi->setMsaaSamples(samples);
-                            }
-                            if (selected) {
-                                ImGui::SetItemDefaultFocus();
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                    bool vsyncEnabled = rhi->getVsyncEnabled();
-                    ImGui::BeginDisabled(!rhi->supportsVsyncToggle());
-                    if (ImGui::Checkbox("VSync", &vsyncEnabled)) {
-                        rhi->setVsyncEnabled(vsyncEnabled);
-                    }
-                    if (!rhi->supportsVsyncToggle() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                        ImGui::SetTooltip("VSync cannot be disabled on this surface.");
-                    }
-                    ImGui::EndDisabled();
-                    ImGui::PopItemWidth();
-                },
-            };
-
-            modelWindow = UI::UIWindow{
-                .name = "Model",
-                .width = 250.0f,
-                .height = 200.0f,
-                .drawCallback = [this]() {
-                    ImGui::PushItemWidth(120.0f);
-                    if (ImGui::Button("Load Model")) {
-                        loadSelectedModel();
-                    }
-                    const auto demos = Loading::getDemoScenes();
-                    const auto& style = ImGui::GetStyle();
-                    const float buttonWidth = ImGui::CalcTextSize("Load Demo").x + 2.0f * style.FramePadding.x;
-                    ImGui::SetNextItemWidth(std::max(
-                        1.0f, ImGui::GetContentRegionAvail().x - buttonWidth - style.ItemSpacing.x
-                    ));
-                    if (ImGui::BeginCombo("##DemoScene", demos[selectedDemoScene].name.data())) {
-                        for (size_t i = 0; i < demos.size(); ++i) {
-                            const bool selected = i == selectedDemoScene;
-                            if (ImGui::Selectable(demos[i].name.data(), selected)) {
-                                selectedDemoScene = i;
-                            }
-                            if (selected) {
-                                ImGui::SetItemDefaultFocus();
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button("Load Demo")) {
-                        const auto& demo = demos[selectedDemoScene];
-                        loadScene(demo.build);
-                        modelName = demo.name;
-                        syncSceneUI();
-                    }
-                    ImGui::Separator();
-                    ImGui::TextWrapped("%s", modelName.c_str());
-                    ImGui::Separator();
-                    const glm::vec3 bounds = currentScene->getBounds().getSize() * sceneScale;
-                    ImGui::TextWrapped("Bounds: %.2f x %.2f x %.2f", bounds.x, bounds.y, bounds.z);
-                    ImGui::TextWrapped("Vertices: %zu", currentScene->getVertCount());
-                    ImGui::TextWrapped("Polygons: %zu", currentScene->getTrisCount());
-                    ImGui::TextWrapped("Objects: %zu", currentScene->getObjects().size());
-                    ImGui::Separator();
-                    if (ImGui::DragFloat("Scale", &sceneScale, 0.01f, 0.001f, 1000.0f, "%.3f")) {
-                        sceneScale = std::max(sceneScale, 0.001f);
-                        needToUpdateSceneMatrix = true;
-                    }
-                    ImGui::PopItemWidth();
-
-                    drawImportErrorPopup();
-                }
-            };
-
-            lightWindow = UI::UIWindow{
-                .name = "Light",
-                .width = 250.0f,
-                .height = 175.0f,
-                .drawCallback = [this]() {
-                    ImGui::PushItemWidth(180.0f);
-                    ImGui::Checkbox("Enabled", &environment.directionalLight.enabled);
-                    ImGui::Checkbox("Shadows", &environment.directionalLight.shadowsEnabled);
-                    ImGui::Separator();
-                    ImGui::BeginDisabled(!environment.directionalLight.enabled);
-                    ImGui::DragFloat(
-                        "Intensity",
-                        &environment.directionalLight.intensity,
-                        0.01f
-                    );
-                    ImGui::ColorEdit3("Color", &environment.directionalLight.color.x);
-                    if (ImGui::DragFloat("Yaw", &lightYaw, 0.5f, -180.0f, 180.0f, "%.1f°", ImGuiSliderFlags_WrapAround)) {
-                        updateLightDirection();
-                    }
-                    if (ImGui::DragFloat("Pitch", &lightPitch, 0.5f, -180.0f, 180.0f, "%.1f°", ImGuiSliderFlags_WrapAround)) {
-                        updateLightDirection();
-                    }
-                    ImGui::EndDisabled();
-                    ImGui::PopItemWidth();
-                }
-            };
-
-            envWindow = UI::UIWindow{
-                .name = "Environment",
-                .width = 320.0f,
-                .height = 320.0f,
-                .drawCallback = [this]() {
-                    ImGui::PushItemWidth(120.0f);
-                    if (ImGui::Button("Load Skybox")) {
-                        loadSkybox();
-                    }
-                    if (environment.skyboxHandle.isValid()) {
-                        ImGui::SameLine();
-                        if (ImGui::Button("Clear Skybox")) {
-                            renderer->getResources().destroyCubemap(environment.skyboxHandle);
-                            environment.skyboxHandle = {};
-                        }
-                        ImGui::ColorEdit3("Tint", &environment.skyboxTint.x);
-                        ImGui::SliderFloat("Intensity", &environment.skyboxIntensity, 0.0f, 10.0f);
-                        ImGui::SliderAngle("Rotation", &environment.skyboxRotation);
-                    }
-                    else {
-                        auto& sky = environment.proceduralSky;
-                        ImGui::DragFloat("Density", &sky.density, 0.01f, 0.0f, 10.0f, "%.2f");
-                        ImGui::SliderInt("Optical Depth Samples", &sky.opticalDepthSamples, 1, 64, "%d");
-                        ImGui::SliderInt("Scattering Samples", &sky.scatteringSamples, 2, 128, "%d");
-                        ImGui::SliderAngle("Sun Radius", &sky.sunRadius, 0.01f, 15.0f, "%.2f deg");
-                        ImGui::SliderAngle("Sun Glow Width", &sky.sunGlowWidth, 0.01f, 60.0f, "%.2f deg");
-                        ImGui::DragFloat("Sun Glow Strength", &sky.sunGlowStrength, 0.01f, 0.0f, 10.0f, "%.2f");
-                        ImGui::SliderAngle("Moon Radius", &sky.moonRadius, 0.01f, 15.0f, "%.2f deg");
-                        ImGui::SliderFloat("Moon Reflectance", &sky.moonReflectance, 0.0f, 1.0f, "%.2f");
-                        ImGui::SliderAngle("Moon Glow Width", &sky.moonGlowWidth, 0.01f, 60.0f, "%.2f deg");
-                        ImGui::DragFloat("Moon Glow Strength", &sky.moonGlowStrength, 0.01f, 0.0f, 10.0f, "%.2f");
-                        if (ImGui::CollapsingHeader("Stars")) {
-                            ImGui::PushID("Stars");
-                            ImGui::DragFloat("Scale", &sky.starScale, 1.0f, 1.0f, 1000.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::SliderFloat("Density", &sky.starDensity, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::DragFloat("Core Width", &sky.starCoreWidth, 0.001f, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::DragFloat("Glow Width", &sky.starGlowWidth, 0.001f, 0.001f, 0.5f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::DragFloat("Glow Strength", &sky.starGlowStrength, 0.001f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::DragFloat("Brightness", &sky.starBrightness, 0.001f, 0.0f, 10.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::DragFloat("Min Brightness", &sky.starMinBrightness, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::DragFloat("Brightness Variation", &sky.starBrightnessVariation, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::DragFloat("Brightness Falloff", &sky.starBrightnessFalloff, 0.1f, 0.1f, 32.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-                            ImGui::PopID();
-                        }
-                    }
-                    ImGui::PopItemWidth();
-
-                    drawImportErrorPopup();
-                }
-            };
-
-            cameraWindow = UI::UIWindow{
-                .name = "Camera",
-                .width = 270.0f,
-                .height = 225.0f,
-                .drawCallback = [this]() {
-                    ImGui::PushItemWidth(120.0f);
-
-                    int controller = static_cast<int>(cameraControllerType);
-                    if (ImGui::Combo("Controller", &controller, "Free Move\0Orbit\0")) {
-                        setCameraController(static_cast<CameraControllerType>(controller));
-                    }
-
-                    if (cameraControllerType == CameraControllerType::FreeMove) {
-                        auto& freeMove = static_cast<Controllers::FreeMoveController&>(*cameraController);
-                        ImGui::DragFloat("Speed", &freeMove.speed, 0.1f, 0.1f, 100.0f);
-                        ImGui::DragFloat(
-                            "Shift Multiplier",
-                            &freeMove.shiftMultiplier,
-                            0.1f,
-                            1.0f,
-                            20.0f
-                        );
-                        ImGui::DragFloat("Look Sensitivity", &freeMove.sensitivity, 0.01f, 0.01f, 2.0f);
-                    }
-                    else {
-                        auto& orbit = static_cast<Controllers::OrbitController&>(*cameraController);
-                        ImGui::DragFloat("Max Radius", &orbit.maxRadius, 0.1f, 0.1f, 1000.0f);
-                        ImGui::DragFloat("Orbit Sensitivity", &orbit.sensitivity, 0.01f, 0.01f, 2.0f);
-                        ImGui::DragFloat("Zoom Sensitivity", &orbit.zoomSensitivity, 0.01f, 0.01f, 10.0f);
-                    }
-
-                    ImGui::Separator();
-                    int projection = static_cast<int>(camera.projection);
-                    if (ImGui::Combo("Projection", &projection, "Perspective\0Orthographic\0")) {
-                        camera.projection = static_cast<Data::CameraProjection>(projection);
-                    }
-
-                    if (camera.projection == Data::CameraProjection::Perspective) {
-                        ImGui::SliderFloat("Field of View", &camera.fov, 1.0f, 179.0f, "%.1f deg");
-                    }
-                    else {
-                        ImGui::DragFloat("Size", &camera.orthographicSize, 0.1f, 0.1f, 1000.0f);
-                    }
-                    ImGui::DragFloat("Near", &camera.near, 0.01f, 0.001f, camera.far);
-                    ImGui::DragFloat("Far", &camera.far, 0.1f, camera.near, 10000.0f);
-
-                    ImGui::PopItemWidth();
-                }
-            };
-
-            postProcessingWindow = UI::UIWindow{
-                .name = "Post Processing",
-                .width = 200.0f,
-                .height = 120.0f,
-                .drawCallback = [this]() {
-                    ImGui::PushItemWidth(80.0f);
-                    ImGui::InputInt("Exposure", &postProcessingData.exposure);
-                    int32_t selected = static_cast<int32_t>(postProcessingData.tonemapping);
-                    if (ImGui::Combo(
-                        "Tone Mapping",
-                        &selected,
-                        tr::Data::toneMappingNames,
-                        IM_ARRAYSIZE(tr::Data::toneMappingNames))
-                    ) {
-                        postProcessingData.tonemapping = static_cast<Data::Tonemapping>(selected);
-                    }
-                    ImGui::PopItemWidth();
-                }
-            };
-
-            uiState.leftWindows = { &modelWindow, &lightWindow, &envWindow };
-            uiState.rightWindows = { &debugWindow, &cameraWindow, &postProcessingWindow };
-        }
-
-        void setupRendering() {
-            rhi = std::make_unique<Rendering::Vulkan::VulkanRHI>(application);
-            renderer = std::make_unique<Rendering::Renderer>(*rhi);
-        }
-
-        void setupCamera() {
-            camera.transform.position = glm::vec3(-12.0f, 15.0f, -12.0f);
-            camera.transform.eulerAngles = glm::vec3(40.0f, 45.0f, 0.0f);
-            camera.fov = 60;
-            camera.near = 0.1f;
-            camera.far = 150;
-            setCameraController(CameraControllerType::FreeMove);
-        }
-
-        void setupLight() {
-            environment.directionalLight = {
-                .direction = glm::vec3(0.5f, -1.0f, -0.5f),
-                .intensity = 5.0f,
-                .color = glm::vec4(1.0f)
-            };
-        }
-
-        void setCameraController(CameraControllerType type) {
-            if (cameraController) {
-                if (cameraControllerType == CameraControllerType::FreeMove) {
-                    const auto& freeMove = static_cast<const Controllers::FreeMoveController&>(*cameraController);
-                    freeMoveSpeed = freeMove.speed;
-                    freeMoveShiftMultiplier = freeMove.shiftMultiplier;
-                    freeMoveSensitivity = freeMove.sensitivity;
-                }
-                else {
-                    const auto& orbit = static_cast<const Controllers::OrbitController&>(*cameraController);
-                    orbitMaxRadius = orbit.maxRadius;
-                    orbitSensitivity = orbit.sensitivity;
-                    orbitZoomSensitivity = orbit.zoomSensitivity;
-                }
-            }
-
-            cameraControllerType = type;
-            if (type == CameraControllerType::FreeMove) {
-                auto controller = std::make_unique<Controllers::FreeMoveController>(camera);
-                controller->speed = freeMoveSpeed;
-                controller->shiftMultiplier = freeMoveShiftMultiplier;
-                controller->sensitivity = freeMoveSensitivity;
-                cameraController = std::move(controller);
-            }
-            else {
-                auto controller = std::make_unique<Controllers::OrbitController>(camera);
-                controller->maxRadius = orbitMaxRadius;
-                controller->sensitivity = orbitSensitivity;
-                controller->zoomSensitivity = orbitZoomSensitivity;
-                cameraController = std::move(controller);
-            }
-        }
-
-        void setScene(std::unique_ptr<const Data::Scene> scene) {
-            if (currentScene) {
-                renderer->unloadSceneResources(*currentScene);
-            }
-            currentScene = std::move(scene);
-            sceneScale = 1.0f;
-            renderer->prepareScene(*currentScene);
-            needToUpdateSceneMatrix = true;
-        }
-
-        void loadScene(SceneLoader load) {
-            Loading::SceneBuilder builder(renderer->getResources());
-            load(builder);
-            setScene(builder.build());
-        }
-
-        void loadSkybox() {
-            auto filePicker = App::createFilePicker();
-            filePicker->requestFile({
-                .title = "Load Skybox",
-                .filters = {
-                    { "Images", "*.png;*.jpg;*.jpeg;*.hdr;*.exr" },
-                    { "All files", "*.*" }
-                }
-            });
-            auto path = filePicker->pollResult();
-
-            if (!path) {
-                fmt::println("No file was selected");
-                return;
-            }
-
-            fmt::println("Loading file {}", path->string());
-
-            renderer->getResources().destroyCubemap(environment.skyboxHandle);
-            environment.skyboxHandle = {};
-
-            try {
-                environment.skyboxHandle = tr::Loading::loadCubemap(path.value(), renderer->getResources());
-            }
-            catch (const Loading::ImportError& error) {
-                importError = error.what();
-                fmt::println("Skybox import failed: {}", importError);
-                importErrorPopupPending = true;
-                showUI = true;
-                syncSceneUI();
-                return;
-            }
-        }
-
-        void loadSelectedModel() {
-            auto filePicker = App::createFilePicker();
-            filePicker->requestFile({
-                .title = "Load Model",
-                .filters = {
-                    { "3D models", "*.obj;*.gltf;*.glb;*.fbx" },
-                    { "All files", "*.*" }
-                }
-            });
-            auto path = filePicker->pollResult();
-
-            if (!path) {
-                fmt::println("No file was selected");
-                return;
-            }
-
-            fmt::println("Loading file {}", path->string());
-            try {
-                Loading::SceneBuilder builder(renderer->getResources());
-                Loading::loadModel(*path, builder);
-                setScene(builder.build());
-            }
-            catch (const Loading::ImportError& error) {
-                importError = error.what();
-                fmt::println("Model import failed: {}", importError);
-                importErrorPopupPending = true;
-                showUI = true;
-                syncSceneUI();
-                return;
-            }
-
-            modelName = path->filename().string();
-            syncSceneUI();
-        }
-
-        void drawImportErrorPopup() {
-            if (importErrorPopupPending) {
-                ImGui::OpenPopup("Import Error");
-                importErrorPopupPending = false;
-            }
-
-            const ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImGui::SetNextWindowPos(
-                viewport->GetCenter(),
-                ImGuiCond_Appearing,
-                ImVec2(0.5f, 0.5f)
-            );
-            ImGui::SetNextWindowSize(ImVec2(460.0f, 0.0f), ImGuiCond_Appearing);
-            if (ImGui::BeginPopupModal(
-                "Import Error",
-                nullptr,
-                ImGuiWindowFlags_AlwaysAutoResize
-            )) {
-                ImGui::TextWrapped("%s", importError.c_str());
-                ImGui::Spacing();
-                if (ImGui::Button("OK", ImVec2(100.0f, 0.0f))) {
-                    ImGui::CloseCurrentPopup();
-                }
-                ImGui::EndPopup();
-            }
-        }
-
-        void syncSceneUI() {
-            const glm::vec3 direction = glm::normalize(environment.directionalLight.direction);
-            lightYaw = glm::degrees(std::atan2(direction.x, direction.z));
-            lightPitch = glm::degrees(std::asin(std::clamp(direction.y, -1.0f, 1.0f)));
-        }
-
-        void updateLightDirection() {
-            const float yaw = glm::radians(lightYaw);
-            const float pitch = glm::radians(lightPitch);
-            environment.directionalLight.direction = glm::vec3(
-                std::cos(pitch) * std::sin(yaw),
-                std::sin(pitch),
-                std::cos(pitch) * std::cos(yaw)
-            );
-        }
-
-        void handleResize() {
-            App::Window& window = *application.window;
-            if (!window.wasResized()) return;
-
-            rhi->resize(window.width(), window.height());
-            window.clearResizedFlag();
-            fmt::println("Window was resized to ({}, {}).", window.width(), window.height());
-        }
-
-        int run() {
-            App::Window& window = *application.window;
-
-            while (!window.shouldClose()) {
-                input.beginFrame();
-                window.pollEvents();
-
-                const float deltaTime = window.deltaTime();
-                if (fpsInitialized) {
-                    const float smoothing = 1.0f - std::exp(-deltaTime / 0.25f);
-                    smoothedDeltaTime += (deltaTime - smoothedDeltaTime) * smoothing;
-                }
-                else {
-                    fpsInitialized = true;
-                }
-
-                if (input.isKeyJustPressed(App::Key::F3)) {
-                    showUI = !showUI;
-                }
-
-                handleResize();
-
-                bool canReadInput = true;
-                ImDrawData* uiDrawData = nullptr;
-                if (showUI) {
-                    renderer->prepareUI();
-                    UI::UIFrame uiFrame = uiProvider.update(uiState);
-                    uiDrawData = uiFrame.drawData;
-                    canReadInput = !uiFrame.wantsMouse && !uiFrame.wantsKeyboard;
-                }
-
-                if (needToUpdateSceneMatrix) {
-                    renderer->updateSceneMatrix(*currentScene, sceneScale);
-                    needToUpdateSceneMatrix = false;
-                }
-
-                if (canReadInput) {
-                    cameraController->update(camera, input, window.deltaTime());
-                }
-
-                if (window.width() != 0 && window.height() != 0) {
-                    renderer->render(*currentScene, camera, environment, postProcessingData, uiDrawData, sceneScale);
-                }
-            }
-
-            fmt::println("Session end.");
-            return 0;
-        }
-    };
-
-    TinyRenderer::TinyRenderer() : _impl(std::make_unique<Impl>()) {}
-    TinyRenderer::~TinyRenderer() = default;
+        rhi->resize(window.width(), window.height());
+        window.clearResizedFlag();
+        fmt::println("Window was resized to ({}, {}).", window.width(), window.height());
+    }
 
     int TinyRenderer::run() {
-        return _impl->run();
+        App::Window& window = *application.window;
+
+        while (!window.shouldClose()) {
+            input.beginFrame();
+            window.pollEvents();
+
+            const float deltaTime = window.deltaTime();
+            if (fpsInitialized) {
+                const float smoothing = 1.0f - std::exp(-deltaTime / 0.25f);
+                smoothedDeltaTime += (deltaTime - smoothedDeltaTime) * smoothing;
+            }
+            else {
+                fpsInitialized = true;
+            }
+
+            if (input.isKeyJustPressed(App::Key::F3)) {
+                showUI = !showUI;
+            }
+
+            handleResize();
+
+            bool canReadInput = true;
+            UI::UIFrame uiFrame;
+            if (showUI) {
+                renderer->prepareUI();
+                uiFrame = uiProvider.update(uiState);
+                canReadInput = !uiFrame.wantsMouse && !uiFrame.wantsKeyboard;
+            }
+
+            if (needToUpdateSceneMatrix) {
+                renderer->updateSceneMatrix(*currentScene, sceneScale);
+                needToUpdateSceneMatrix = false;
+            }
+
+            if (canReadInput) {
+                cameraController->update(camera, input, window.deltaTime());
+            }
+
+            if (window.width() != 0 && window.height() != 0) {
+                renderer->render(*currentScene, camera, environment, postProcessingData, uiFrame.drawData, sceneScale);
+            }
+        }
+
+        fmt::println("Session end.");
+        return 0;
     }
 }
+

@@ -4,8 +4,6 @@
 #include <array>
 #include <memory>
 
-#include <imgui.h>
-
 #include "defines.h"
 #include "rhi.h"
 #include "scene.h"
@@ -71,7 +69,7 @@ namespace tr::Rendering {
             const FrameContext& frame,
             const tr::Data::Environment& environment,
             const PostProcessingData& postProcessingData,
-            ImDrawData* uiDrawData
+            const UI::UIDrawData* uiDrawData
         );
 
     public:
@@ -95,7 +93,7 @@ namespace tr::Rendering {
             const tr::Data::Camera& camera,
             const tr::Data::Environment& env,
             const tr::Data::PostProcessingData& postProcessingData,
-            ImDrawData* uiDrawData,
+            const UI::UIDrawData* uiDrawData,
             float sceneScale
         );
     };

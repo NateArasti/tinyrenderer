@@ -14,11 +14,12 @@ project(
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(tinyrenderer
-    src/main.cpp
-    src/tiny_renderer.cpp
-    src/tiny_renderer.h
+file(GLOB SOURCES CONFIGURE_DEPENDS
+    "src/*.h"
+    "src/*.cpp"
 )
+
+add_executable(tinyrenderer ${SOURCES})
 if(WIN32)
     set_target_properties(tinyrenderer PROPERTIES
         WIN32_EXECUTABLE "$<$<CONFIG:Release>:TRUE>"

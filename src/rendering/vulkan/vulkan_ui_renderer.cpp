@@ -2,6 +2,7 @@
 
 #include <imgui_impl_vulkan.h>
 
+#include "ui_data.h"
 #include "vulkan_command_buffer.h"
 
 namespace tr::Rendering::Vulkan {
@@ -58,8 +59,8 @@ namespace tr::Rendering::Vulkan {
         ImGui_ImplVulkan_NewFrame();
     }
 
-    void VulkanUIRenderer::draw(CommandBuffer& cmd, ImDrawData* drawData) {
+    void VulkanUIRenderer::draw(CommandBuffer& cmd, const UI::UIDrawData* drawData) {
         auto& vulkanCmd = static_cast<VulkanCommandBuffer&>(cmd);
-        ImGui_ImplVulkan_RenderDrawData(drawData, static_cast<VkCommandBuffer>(*vulkanCmd.handle()));
+        ImGui_ImplVulkan_RenderDrawData(drawData->native, static_cast<VkCommandBuffer>(*vulkanCmd.handle()));
     }
 }

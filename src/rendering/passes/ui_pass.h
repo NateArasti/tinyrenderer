@@ -10,7 +10,7 @@ namespace tr::Rendering {
 
     public:
         RGHandle target;
-        ImDrawData* drawData = nullptr;
+        const UI::UIDrawData* drawData = nullptr;
 
         UIPass(RenderingResources& resources, UIRenderer& uiRenderer);
 

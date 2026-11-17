@@ -369,7 +369,7 @@ namespace tr::Rendering {
         const FrameContext& frame,
         const tr::Data::Environment& environment,
         const PostProcessingData& postProcessingData,
-        ImDrawData* uiDrawData
+        const UI::UIDrawData* uiDrawData
     ) {
         auto& resources = _rhi.resources();
 
@@ -461,7 +461,7 @@ namespace tr::Rendering {
         const Data::Camera& camera,
         const Data::Environment& environment,
         const PostProcessingData& postProcessingData,
-        ImDrawData* uiDrawData,
+        const UI::UIDrawData* uiDrawData,
         float sceneScale
     ) {
         auto frame = _rhi.startFrame();

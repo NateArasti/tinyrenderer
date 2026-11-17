@@ -1,6 +1,6 @@
 #pragma once
 
-struct ImDrawData;
+#include "ui_data.h"
 
 namespace tr::Rendering {
     class CommandBuffer;
@@ -10,6 +10,6 @@ namespace tr::Rendering {
         virtual ~UIRenderer() = default;
 
         virtual void beginFrame() = 0;
-        virtual void draw(CommandBuffer& cmd, ImDrawData* drawData) = 0;
+        virtual void draw(CommandBuffer& cmd, const UI::UIDrawData* drawData) = 0;
     };
 }
