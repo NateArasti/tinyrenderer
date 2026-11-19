@@ -12,6 +12,7 @@
 
 namespace tr {
     void TinyRenderer::setupUI() {
+        uiState.topLabel = "F3 to toggle UI";
         uiState.leftSections = {
             { .name = "Model", .opened = true, .drawCallback = [this]() { drawModelSection(); } },
             { .name = "Light", .drawCallback = [this]() { drawLightSection(); } },
@@ -127,13 +128,49 @@ namespace tr {
     }
 
     void TinyRenderer::drawInfoSection() {
-        uiProvider.text(application.name);
+        uiProvider.text(application.name, 1.4f);
         uiProvider.sameLine();
-        uiProvider.text(application.version);
+        uiProvider.text(application.version, 1.4f);
+        uiProvider.spacing();
         uiProvider.separator();
-        uiProvider.text(fmt::format("FPS: {}", static_cast<int>(1.0f / smoothedDeltaTime)));
+        uiProvider.text(
+            fmt::format(
+                "FPS: {} ({:.1f} ms)",
+                static_cast<int>(1.0f / smoothedDeltaTime),
+                smoothedDeltaTime * 1000.0f
+            )
+        );
+        uiProvider.text(
+            cpuFrameMilliseconds
+            ? fmt::format("CPU: {:.2f} ms", *cpuFrameMilliseconds)
+            : "CPU: --"
+        );
+        uiProvider.text(
+            gpuFrameMilliseconds
+            ? fmt::format("GPU: {:.2f} ms", *gpuFrameMilliseconds)
+            : "GPU: --"
+        );
         uiProvider.separator();
+        const auto drawMemoryUsage = [this](const char* label, const std::optional<App::MemoryUsage>& usage) {
+            if (!usage || usage->totalBytes == 0) {
+                uiProvider.text(fmt::format("{}: N/A", label));
+                return;
+            }
+
+            constexpr double bytesPerGiB = 1024.0 * 1024.0 * 1024.0;
+            const auto overlay = fmt::format(
+                "{:.2f} / {:.2f} GiB", usage->usedBytes / bytesPerGiB, usage->totalBytes / bytesPerGiB
+            );
+            const float fraction = static_cast<float>(
+                static_cast<double>(usage->usedBytes) / usage->totalBytes
+            );
+            uiProvider.progressBar(label, fraction, overlay.c_str());
+        };
+
+        uiProvider.text(fmt::format("CPU: {}", cpuName));
         uiProvider.text(fmt::format("GPU: {}", gpuName));
+        drawMemoryUsage("RAM", ramUsage);
+        drawMemoryUsage(gpuMemoryShared ? "GPU memory" : "VRAM", gpuMemoryUsage);
     }
 
     void TinyRenderer::drawSettingsSection() {

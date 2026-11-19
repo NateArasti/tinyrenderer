@@ -1,5 +1,7 @@
 #include "tiny_renderer.h"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 
 #include <fmt/base.h>
@@ -27,7 +29,9 @@ namespace tr {
         setupCamera();
         setupLight();
 
+        cpuName = App::getCpuName();
         gpuName = rhi->getDeviceName();
+        gpuMemoryShared = rhi->isDeviceMemoryShared();
         supportedMsaaSamples = rhi->getSupportedMsaaSamples();
         syncSceneUI();
     }
@@ -67,12 +71,13 @@ namespace tr {
         App::Window& window = *application.window;
 
         while (!window.shouldClose()) {
+            const auto frameStart = std::chrono::steady_clock::now();
             input.beginFrame();
             window.pollEvents();
 
             const float deltaTime = window.deltaTime();
+            const float smoothing = 1.0f - std::exp(-deltaTime / 0.25f);
             if (fpsInitialized) {
-                const float smoothing = 1.0f - std::exp(-deltaTime / 0.25f);
                 smoothedDeltaTime += (deltaTime - smoothedDeltaTime) * smoothing;
             }
             else {
@@ -84,6 +89,13 @@ namespace tr {
             }
 
             handleResize();
+
+            memoryUsageRefreshSeconds += deltaTime;
+            if (showUI && memoryUsageRefreshSeconds >= 0.5) {
+                ramUsage = App::getRamUsage();
+                gpuMemoryUsage = rhi->getMemoryUsage();
+                memoryUsageRefreshSeconds = 0.0;
+            }
 
             bool canReadInput = true;
             UI::UIFrame uiFrame;
@@ -102,9 +114,25 @@ namespace tr {
                 cameraController->update(camera, input, window.deltaTime());
             }
 
+            double waitMilliseconds = 0.0;
             if (window.width() != 0 && window.height() != 0) {
                 renderer->render(*currentScene, camera, environment, postProcessingData, uiFrame.drawData, sceneScale);
+                waitMilliseconds = rhi->getFrameWaitMilliseconds();
+                if (const auto gpuMilliseconds = rhi->getGpuFrameMilliseconds()) {
+                    gpuFrameMilliseconds = gpuFrameMilliseconds
+                        ? *gpuFrameMilliseconds + smoothing * (*gpuMilliseconds - *gpuFrameMilliseconds)
+                        : *gpuMilliseconds;
+                }
             }
+
+            const double elapsedMilliseconds = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - frameStart
+            ).count();
+            const double cpuMilliseconds = std::max(0.0, elapsedMilliseconds - waitMilliseconds);
+            cpuFrameMilliseconds =
+                cpuFrameMilliseconds
+                ? *cpuFrameMilliseconds + smoothing * (cpuMilliseconds - *cpuFrameMilliseconds)
+                : cpuMilliseconds;
         }
 
         fmt::println("Session end.");

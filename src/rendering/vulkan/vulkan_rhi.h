@@ -26,6 +26,12 @@ namespace tr::Rendering::Vulkan {
 
         vk::raii::CommandPool _commandPool = nullptr;
         std::vector<vk::raii::CommandBuffer> _commandBuffers;
+        vk::raii::QueryPool _timestampQueries = nullptr;
+        std::array<bool, MAX_FRAMES_IN_FLIGHT> _timestampPending{};
+        uint32_t _timestampValidBits = 0;
+        double _timestampPeriod = 0.0;
+        double _frameWaitMilliseconds = 0.0;
+        std::optional<double> _gpuFrameMilliseconds;
         
         std::vector<Handle<GPUTexture>> _backbuffers;
         std::vector<Handle<GPUTexture>> _hdrTargets;
@@ -51,6 +57,7 @@ namespace tr::Rendering::Vulkan {
         void createCommandPool();
         void createCommandBuffers();
         void createSyncObjects();
+        void createTimestampQueries();
         void recreateSwapchain();
         void importBackbuffers();
         void createFrameTargets();
@@ -61,6 +68,10 @@ namespace tr::Rendering::Vulkan {
         ~VulkanRHI() override;
 
         std::string getDeviceName() const override;
+        std::optional<App::MemoryUsage> getMemoryUsage() const override;
+        bool isDeviceMemoryShared() const override;
+        double getFrameWaitMilliseconds() const override { return _frameWaitMilliseconds; }
+        std::optional<double> getGpuFrameMilliseconds() const override { return _gpuFrameMilliseconds; }
         bool validationEnabled() const { return _vulkanContext.validationEnabled(); }
         void resize(uint32_t width, uint32_t height) override;
         uint32_t getMsaaSamples() const override;

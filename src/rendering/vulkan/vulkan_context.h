@@ -40,6 +40,7 @@ namespace tr::Rendering::Vulkan {
         void setDebugName(vk::ObjectType type, uint64_t handle, std::string_view name);
 
         bool _debugUtilsEnabled = false;
+        bool _memoryBudgetSupported = false;
 
     public:
         vk::raii::Context context;
@@ -64,6 +65,7 @@ namespace tr::Rendering::Vulkan {
         VulkanContext& operator=(VulkanContext&&) = delete;
 
         bool debugUtilsEnabled() const { return _debugUtilsEnabled; }
+        bool memoryBudgetSupported() const { return _memoryBudgetSupported; }
         bool validationEnabled() const { return _validation.enabled && static_cast<bool>(*debugMessenger); }
 
         template<typename Handle>

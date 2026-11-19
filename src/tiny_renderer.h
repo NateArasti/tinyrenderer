@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,6 +17,7 @@
 #include "rhi.h"
 #include "scene.h"
 #include "scene_builder.h"
+#include "system_info.h"
 #include "ui_data.h"
 #include "ui_provider.h"
 
@@ -54,14 +56,25 @@ namespace tr {
         Data::Camera camera;
         std::unique_ptr<Controllers::CameraController> cameraController;
 
-        std::string gpuName;
         std::string modelName;
         int selectedDemoScene = 0;
+
         std::string importError;
-        std::vector<uint32_t> supportedMsaaSamples;
+
         float lightYaw = 0.0f;
         float lightPitch = 0.0f;
+
         float smoothedDeltaTime = 1.0f / 60.0f;
+        std::vector<uint32_t> supportedMsaaSamples;
+        std::optional<double> cpuFrameMilliseconds;
+        std::optional<double> gpuFrameMilliseconds;
+        std::string cpuName;
+        std::string gpuName;
+        std::optional<App::MemoryUsage> ramUsage;
+        std::optional<App::MemoryUsage> gpuMemoryUsage;
+        double memoryUsageRefreshSeconds = 0.5;
+        bool gpuMemoryShared = false;
+
         CameraControllerType cameraControllerType = CameraControllerType::FreeMove;
         float freeMoveSpeed = 10.0f;
         float freeMoveShiftMultiplier = 2.5f;
@@ -69,8 +82,9 @@ namespace tr {
         float orbitMaxRadius = 50.0f;
         float orbitSensitivity = 0.2f;
         float orbitZoomSensitivity = 0.75f;
+
         bool fpsInitialized = false;
-        bool showUI = false;
+        bool showUI = true;
         bool importErrorPopupPending = false;
         bool needToUpdateSceneMatrix = false;
 

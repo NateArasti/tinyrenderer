@@ -3,6 +3,7 @@
 #include "vulkan_utility.h"
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -20,6 +21,7 @@ namespace tr::Rendering::Vulkan {
         createCommandPool();
         createCommandBuffers();
         createSyncObjects();
+        createTimestampQueries();
         importBackbuffers();
         createFrameTargets();
     }
@@ -34,6 +36,35 @@ namespace tr::Rendering::Vulkan {
 
     std::string VulkanRHI::getDeviceName() const {
         return _vulkanContext.physicalDevice.getProperties().deviceName.data();
+    }
+
+    std::optional<App::MemoryUsage> VulkanRHI::getMemoryUsage() const {
+        if (!_vulkanContext.memoryBudgetSupported()) {
+            return std::nullopt;
+        }
+
+        const auto properties = _vulkanContext.physicalDevice.getMemoryProperties2<
+            vk::PhysicalDeviceMemoryProperties2, vk::PhysicalDeviceMemoryBudgetPropertiesEXT
+        >();
+        const auto& memory = properties.get<vk::PhysicalDeviceMemoryProperties2>().memoryProperties;
+        const auto& budget = properties.get<vk::PhysicalDeviceMemoryBudgetPropertiesEXT>();
+
+        App::MemoryUsage usage;
+        for (uint32_t i = 0; i < memory.memoryHeapCount; ++i) {
+            if (memory.memoryHeaps[i].flags & vk::MemoryHeapFlagBits::eDeviceLocal) {
+                usage.usedBytes += budget.heapUsage[i];
+                usage.totalBytes += memory.memoryHeaps[i].size;
+            }
+        }
+        if (usage.totalBytes == 0) {
+            return std::nullopt;
+        }
+        return usage;
+    }
+
+    bool VulkanRHI::isDeviceMemoryShared() const {
+        const auto type = _vulkanContext.physicalDevice.getProperties().deviceType;
+        return type == vk::PhysicalDeviceType::eIntegratedGpu || type == vk::PhysicalDeviceType::eCpu;
     }
 
     Format VulkanRHI::getDepthFormat() const {
@@ -207,7 +238,23 @@ namespace tr::Rendering::Vulkan {
         }
     }
 
+    void VulkanRHI::createTimestampQueries() {
+        const auto queueFamilies = _vulkanContext.physicalDevice.getQueueFamilyProperties();
+        _timestampValidBits = queueFamilies[_vulkanContext.queueIndex].timestampValidBits;
+        if (_timestampValidBits == 0) {
+            return;
+        }
+
+        _timestampPeriod = _vulkanContext.physicalDevice.getProperties().limits.timestampPeriod;
+        vk::QueryPoolCreateInfo createInfo{
+            .queryType = vk::QueryType::eTimestamp,
+            .queryCount = 2 * MAX_FRAMES_IN_FLIGHT,
+        };
+        _timestampQueries = vk::raii::QueryPool(_vulkanContext.device, createInfo);
+    }
+
     std::optional<FrameContext> VulkanRHI::startFrame() {
+        _frameWaitMilliseconds = 0.0;
         if (_frameStarted || _application.window->width() == 0 || _application.window->height() == 0) {
             return std::nullopt;
         }
@@ -219,6 +266,7 @@ namespace tr::Rendering::Vulkan {
 
         auto& fence = _inFlightFences[_currentFrame];
 
+        const auto waitStart = std::chrono::steady_clock::now();
         while (_vulkanContext.device.waitForFences(
             { *fence },
             vk::True,
@@ -237,8 +285,28 @@ namespace tr::Rendering::Vulkan {
             }
         }
         catch (const vk::OutOfDateKHRError&) {
+            _frameWaitMilliseconds = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - waitStart
+            ).count();
             _swapchainDirty = true;
             return std::nullopt;
+        }
+        _frameWaitMilliseconds = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - waitStart
+        ).count();
+
+        const uint32_t firstQuery = 2 * _currentFrame;
+        if (_timestampPending[_currentFrame]) {
+            uint64_t timestamps[2]{};
+            const auto result = _timestampQueries.getResults(
+                firstQuery, 2, sizeof(timestamps), timestamps, sizeof(uint64_t), vk::QueryResultFlagBits::e64
+            );
+            if (result == vk::Result::eSuccess) {
+                const uint64_t mask = std::numeric_limits<uint64_t>::max() >> (64 - _timestampValidBits);
+                const uint64_t ticks = (timestamps[1] - timestamps[0]) & mask;
+                _gpuFrameMilliseconds = static_cast<double>(ticks) * _timestampPeriod / 1'000'000.0;
+            }
+            _timestampPending[_currentFrame] = false;
         }
 
         _resources->beginFrame(_currentFrame);
@@ -247,6 +315,10 @@ namespace tr::Rendering::Vulkan {
         commandBuffer.reset();
         vk::CommandBufferBeginInfo beginInfo{};
         commandBuffer.begin(beginInfo);
+        if (_timestampValidBits != 0) {
+            commandBuffer.resetQueryPool(*_timestampQueries, firstQuery, 2);
+            commandBuffer.writeTimestamp2(vk::PipelineStageFlagBits2::eTopOfPipe, *_timestampQueries, firstQuery);
+        }
 
         _commandAdapter->reset(commandBuffer);
         _frameStarted = true;
@@ -273,6 +345,11 @@ namespace tr::Rendering::Vulkan {
 
         auto& commandBuffer = _commandBuffers[_currentFrame];
 
+        if (_timestampValidBits != 0) {
+            commandBuffer.writeTimestamp2(
+                vk::PipelineStageFlagBits2::eAllCommands, *_timestampQueries, 2 * _currentFrame + 1
+            );
+        }
         commandBuffer.end();
         _vulkanContext.device.resetFences({ *_inFlightFences[_currentFrame] });
 
@@ -296,6 +373,7 @@ namespace tr::Rendering::Vulkan {
         };
 
         _vulkanContext.queue.submit2({ submitInfo }, *_inFlightFences[_currentFrame]);
+        _timestampPending[_currentFrame] = _timestampValidBits != 0;
 
         vk::PresentInfoKHR presentInfo{
             .waitSemaphoreCount = 1,
@@ -305,6 +383,7 @@ namespace tr::Rendering::Vulkan {
             .pImageIndices = &_currentImageIndex,
         };
 
+        const auto presentStart = std::chrono::steady_clock::now();
         try {
             auto result = _vulkanContext.queue.presentKHR(presentInfo);
             if (result == vk::Result::eSuboptimalKHR) {
@@ -314,6 +393,9 @@ namespace tr::Rendering::Vulkan {
         catch (const vk::OutOfDateKHRError&) {
             _swapchainDirty = true;
         }
+        _frameWaitMilliseconds += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - presentStart
+        ).count();
 
         _backbufferStates[_currentImageIndex] = TextureState::Present;
         _currentFrame = (_currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;

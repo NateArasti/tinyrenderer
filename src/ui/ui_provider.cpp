@@ -1,6 +1,7 @@
 #include "ui_provider.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include <imgui.h>
 
@@ -181,11 +182,24 @@ namespace tr::UI {
         return ImGui::Checkbox(label, value);
     }
 
-    void UIProvider::text(std::string_view value) {
+    void UIProvider::progressBar(const char* label, float fraction, const char* overlay) {
+        drawProperty(label, [&](const char*) {
+            ImGui::ProgressBar(fraction, ImVec2(ImGui::CalcItemWidth(), 0.0f), overlay);
+            return false;
+        });
+    }
+
+    void UIProvider::text(std::string_view value, float fontScale) {
         const char* begin = value.empty() ? "" : value.data();
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * fontScale);
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(begin, begin + value.size());
         ImGui::PopTextWrapPos();
+        ImGui::PopFont();
+    }
+
+    void UIProvider::spacing() {
+        ImGui::Spacing();
     }
 
     void UIProvider::separator() {
@@ -354,6 +368,16 @@ namespace tr::UI {
         drawSidePanel(state.rightSections, false);
         if (state.drawOverlay) {
             state.drawOverlay();
+        }
+        if (!state.topLabel.empty()) {
+            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * 1.5f);
+            const ImGuiViewport* viewport = ImGui::GetMainViewport();
+            const ImVec2 textSize = ImGui::CalcTextSize(state.topLabel.c_str());
+            ImGui::GetForegroundDrawList()->AddText(
+                ImVec2(viewport->Pos.x + (io.DisplaySize.x - textSize.x) * 0.5f, viewport->Pos.y + padding),
+                ImGui::GetColorU32(ImGuiCol_Text), state.topLabel.c_str()
+            );
+            ImGui::PopFont();
         }
         ImGui::Render();
 

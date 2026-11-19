@@ -21,7 +21,6 @@ namespace tr::UI {
         bool drawProperty(const char* label, Draw draw);
 
     public:
-        float spacing = 20.0f;
         float minItemWidth = 80.0f;
         float windowWidth = 300.0f;
 
@@ -71,7 +70,9 @@ namespace tr::UI {
         bool combo(const char* label, int* selected, std::span<const char* const> items);
         bool button(const char* label, float width = 0.0f);
         bool checkbox(const char* label, bool* value);
-        void text(std::string_view value);
+        void progressBar(const char* label, float fraction, const char* overlay = nullptr);
+        void text(std::string_view value, float fontScale = 1.0f);
+        void spacing();
         void separator();
         void sameLine();
         bool beginRow(const char* id, int columns = 2);

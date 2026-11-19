@@ -362,12 +362,21 @@ namespace tr::Rendering::Vulkan {
             .queueCount = 1,
             .pQueuePriorities = &queuePriority
         };
+        auto extensions = _requiredDeviceExtension;
+        for (const auto& extension : physicalDevice.enumerateDeviceExtensionProperties()) {
+            if (std::string_view(extension.extensionName.data()) == vk::EXTMemoryBudgetExtensionName) {
+                extensions.push_back(vk::EXTMemoryBudgetExtensionName);
+                _memoryBudgetSupported = true;
+                break;
+            }
+        }
+
         vk::DeviceCreateInfo deviceCreateInfo{
             .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
             .queueCreateInfoCount = 1,
             .pQueueCreateInfos = &deviceQueueCreateInfo,
-            .enabledExtensionCount = static_cast<uint32_t>(_requiredDeviceExtension.size()),
-            .ppEnabledExtensionNames = _requiredDeviceExtension.data()
+            .enabledExtensionCount = static_cast<uint32_t>(extensions.size()),
+            .ppEnabledExtensionNames = extensions.data()
         };
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);

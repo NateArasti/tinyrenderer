@@ -88,10 +88,12 @@ CTest runs use a shared GPU resource lock and a 180-second timeout per demo.
 ## TODO
 
 - **Porting**
+  - [x] Windows
   - [ ] Linux
   - [ ] Web
   - [ ] Android
 - **Rendering Backends**
+  - [x] Vulkan
   - [ ] WebGPU
   - [ ] DirectX
   - [ ] OpenGL
@@ -132,6 +134,7 @@ CTest runs use a shared GPU resource lock and a 180-second timeout per demo.
   - [ ] Multi-file import
   - [ ] More texture import formats
   - [ ] Screenshot Export
+  - [ ] Video Recording
   - [ ] Drag-and-drop model loading
   - [ ] File Associations
   - [ ] Recent files

@@ -18,6 +18,7 @@ namespace tr::UI {
     };
 
     struct UIState {
+        std::string topLabel;
         std::vector<UISection> leftSections;
         std::vector<UISection> rightSections;
         std::function<void()> drawOverlay;
