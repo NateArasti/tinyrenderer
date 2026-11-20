@@ -41,6 +41,8 @@ namespace tr {
         };
         App::Input input{ *application.window };
 
+        std::optional<App::WindowMode> pendingWindowMode;
+
         UI::UIProvider uiProvider{ *application.window, input };
         UI::UIState uiState;
 

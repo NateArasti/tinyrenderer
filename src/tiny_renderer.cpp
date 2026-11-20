@@ -89,7 +89,11 @@ namespace tr {
             if (input.isKeyJustPressed(App::Key::F3)) {
                 showUI = !showUI;
             }
-
+            
+            if (pendingWindowMode) {
+                window.setMode(*pendingWindowMode);
+                pendingWindowMode.reset();
+            }
             handleResize();
 
             memoryUsageRefreshSeconds += deltaTime;

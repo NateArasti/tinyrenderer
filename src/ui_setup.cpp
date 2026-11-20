@@ -175,6 +175,12 @@ namespace tr {
     }
 
     void TinyRenderer::drawSettingsSection() {
+        const char* modes[] = { "Windowed", "Windowed Fullscreen", "Fullscreen" };
+        int selectedWindowMode = static_cast<int>(application.window->mode());
+        if (uiProvider.combo("Window Mode", &selectedWindowMode, modes)) {
+            pendingWindowMode = static_cast<App::WindowMode>(selectedWindowMode);
+        }
+
         constexpr float sizeFieldWidth = 44.0f;
         const bool widthChanged = uiProvider.inputInt("##Render width", &pendingRenderSize.x, 0, 0, sizeFieldWidth);
         uiProvider.sameLine();
@@ -205,23 +211,23 @@ namespace tr {
         if (!renderSizeError.empty()) {
             uiProvider.text(renderSizeError);
         }
-        
+
         const uint32_t currentSamples = rhi->getMsaaSamples();
         std::vector<std::string> sampleLabels;
         std::vector<const char*> sampleNames;
         sampleLabels.reserve(supportedMsaaSamples.size());
         sampleNames.reserve(supportedMsaaSamples.size());
-        int selected = 0;
+        int selectedMSAAMode = 0;
         for (size_t i = 0; i < supportedMsaaSamples.size(); ++i) {
             const uint32_t samples = supportedMsaaSamples[i];
             sampleLabels.push_back(fmt::format("{}x", samples));
             sampleNames.push_back(sampleLabels.back().c_str());
             if (samples == currentSamples) {
-                selected = static_cast<int>(i);
+                selectedMSAAMode = static_cast<int>(i);
             }
         }
-        if (uiProvider.combo("MSAA", &selected, sampleNames)) {
-            rhi->setMsaaSamples(supportedMsaaSamples[selected]);
+        if (uiProvider.combo("MSAA", &selectedMSAAMode, sampleNames)) {
+            rhi->setMsaaSamples(supportedMsaaSamples[selectedMSAAMode]);
         }
 
         bool vsyncEnabled = rhi->getVsyncEnabled();

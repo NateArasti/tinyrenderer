@@ -47,6 +47,24 @@ namespace tr::Tests {
         }
     };
 
+    TEST_F(SettingsChange, WindowMode) {
+        ASSERT_TRUE(renderFrame());
+
+        auto& window = _application->window;
+
+        window->setMode(tr::App::WindowMode::Windowed);
+        EXPECT_EQ(window->mode(), tr::App::WindowMode::Windowed);
+        ASSERT_TRUE(renderFrame());
+
+        window->setMode(tr::App::WindowMode::WindowedFullscreen);
+        EXPECT_EQ(window->mode(), tr::App::WindowMode::WindowedFullscreen);
+        ASSERT_TRUE(renderFrame());
+
+        window->setMode(tr::App::WindowMode::Fullscreen);
+        EXPECT_EQ(window->mode(), tr::App::WindowMode::Fullscreen);
+        ASSERT_TRUE(renderFrame());
+    }
+
     TEST_F(SettingsChange, RenderSize) {
         ASSERT_TRUE(renderFrame());
 

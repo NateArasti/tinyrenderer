@@ -68,6 +68,84 @@ namespace tr::App {
         glfwTerminate();
     }
 
+    void Window::setMode(WindowMode mode, glm::ivec2 fullscreenSize) {
+        if (_currentMode == mode) {
+            return;
+        }
+
+        auto* window = static_cast<GLFWwindow*>(_window);
+        auto* attachedMonitor = glfwGetWindowMonitor(window);
+        auto* monitor = attachedMonitor ? attachedMonitor : glfwGetPrimaryMonitor();
+        if (mode != WindowMode::Windowed && !monitor) {
+            return;
+        }
+
+        if (_currentMode == WindowMode::Windowed) {
+            _windowedMaximized = glfwGetWindowAttrib(window, GLFW_MAXIMIZED);
+            if (_windowedMaximized) {
+                glfwRestoreWindow(window);
+            }
+
+            glfwGetWindowPos(window, &_windowedPos.x, &_windowedPos.y);
+            glfwGetWindowSize(window, &_windowedSize.x, &_windowedSize.y);
+        }
+
+        const auto restoreWindowedBounds = [&] {
+            glfwSetWindowMonitor(
+                window,
+                nullptr,
+                _windowedPos.x, _windowedPos.y,
+                _windowedSize.x, _windowedSize.y,
+                GLFW_DONT_CARE
+            );
+        };
+
+        if (mode == WindowMode::Fullscreen) {
+            const auto* desktop = glfwGetVideoMode(monitor);
+            if (!desktop) {
+                return;
+            }
+
+            const bool useDesktopSize = fullscreenSize.x <= 0 || fullscreenSize.y <= 0;
+            glfwSetWindowMonitor(
+                window,
+                monitor,
+                0, 0,
+                useDesktopSize ? desktop->width : fullscreenSize.x, useDesktopSize ? desktop->height : fullscreenSize.y,
+                useDesktopSize ? desktop->refreshRate : GLFW_DONT_CARE
+            );
+            _currentMode = mode;
+            return;
+        }
+
+        if (mode == WindowMode::WindowedFullscreen) {
+            glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+            if (attachedMonitor) {
+                restoreWindowedBounds();
+            }
+
+            if (const auto* desktop = glfwGetVideoMode(monitor)) {
+                int x, y;
+                glfwGetMonitorPos(monitor, &x, &y);
+                glfwSetWindowMonitor(
+                    window,
+                    nullptr, x, y,
+                    desktop->width, desktop->height,
+                    GLFW_DONT_CARE
+                );
+                _currentMode = mode;
+                return;
+            }
+        }
+
+        glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
+        restoreWindowedBounds();
+        if (_windowedMaximized) {
+            glfwMaximizeWindow(window);
+        }
+        _currentMode = WindowMode::Windowed;
+    }
+
     bool Window::shouldClose() const {
         return glfwWindowShouldClose(static_cast<GLFWwindow*>(_window));
     }
