@@ -30,7 +30,7 @@ namespace tr {
     }
 
     void TinyRenderer::loadSkybox() {
-        auto filePicker = App::createFilePicker();
+        auto filePicker = App::createFilePicker(*application.window);
         filePicker->requestFile({
             .title = "Load Skybox",
             .filters = {
@@ -64,7 +64,7 @@ namespace tr {
     }
 
     void TinyRenderer::loadSelectedModel() {
-        auto filePicker = App::createFilePicker();
+        auto filePicker = App::createFilePicker(*application.window);
         filePicker->requestFile({
             .title = "Load Model",
             .filters = {

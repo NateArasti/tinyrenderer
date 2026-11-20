@@ -107,6 +107,7 @@ namespace tr::App {
             }
 
             const bool useDesktopSize = fullscreenSize.x <= 0 || fullscreenSize.y <= 0;
+            glfwSetWindowAttrib(window, GLFW_AUTO_ICONIFY, GLFW_FALSE);
             glfwSetWindowMonitor(
                 window,
                 monitor,
