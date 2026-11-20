@@ -65,12 +65,15 @@ namespace tr::Rendering {
     }
 
     void PostProcessingPass::execute(CommandBuffer& cmd, RenderGraphContext& context, FrameContext& frame) {
+        const auto ratio = frame.outputExtent / frame.renderExtent;
+        const float scale = glm::min(ratio.x, ratio.y);
+        const auto extent = glm::max(glm::round(frame.renderExtent * scale), glm::vec2(1.0f));
+        const auto offset = glm::floor((frame.outputExtent - extent) * 0.5f);
+
         cmd.beginRendering({
-            .renderArea{
-                .offset = glm::vec2(0, 0),
-                .extent = frame.extent,
-            },
-            .colorAttachment{
+            .renderArea = { .offset = {0, 0}, .extent = frame.outputExtent },
+            .outputArea = RenderArea{ .offset = offset, .extent = extent },
+            .colorAttachment = {
                 .target = context.texture(target),
                 .load = false,
             },

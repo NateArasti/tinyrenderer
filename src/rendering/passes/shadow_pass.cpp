@@ -24,7 +24,7 @@ namespace tr::Rendering {
             .vertexAttributes = {
                 {
                     0,
-                    R32G32B32SFloat,
+                    Format::R32G32B32SFloat,
                     offsetof(Data::Mesh::Vertex, position)
                 }
             },
@@ -38,7 +38,7 @@ namespace tr::Rendering {
                 .testEnabled = true,
                 .writeEnabled = true,
             },
-            .depthFormat = D32SFloat,
+            .depthFormat = Format::D32SFloat,
         });
     }
 
@@ -55,7 +55,7 @@ namespace tr::Rendering {
         target = builder.create("Shadow map", {
             .width = SHADOW_MAP_SIZE,
             .height = SHADOW_MAP_SIZE,
-            .format = D32SFloat,
+            .format = Format::D32SFloat,
             .sampled = true,
             .comparisonSampler = true,
         });

@@ -5,8 +5,7 @@
 #include <stdexcept>
 
 namespace tr::Rendering::Vulkan {
-    Swapchain::Swapchain(VulkanContext& context, uint32_t width, uint32_t height)
-        : _context(context)
+    Swapchain::Swapchain(VulkanContext& context, uint32_t width, uint32_t height) : _context(context)
     {
         recreate(width, height, true);
     }

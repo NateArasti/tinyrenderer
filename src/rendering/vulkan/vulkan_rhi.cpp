@@ -23,12 +23,12 @@ namespace tr::Rendering::Vulkan {
         createSyncObjects();
         createTimestampQueries();
         importBackbuffers();
-        createFrameTargets();
+        recreateFrameTargets(_renderExtent, getMsaaSamples());
     }
 
     VulkanRHI::~VulkanRHI() {
         _vulkanContext.device.waitIdle();
-        destroyFrameTargets();
+        destroyFrameTargets(_frameTargets);
         for (const auto handle : _backbuffers) {
             _resources->forgetTexture(handle);
         }
@@ -75,7 +75,23 @@ namespace tr::Rendering::Vulkan {
         _vulkanContext.device.waitIdle();
     }
 
-    void VulkanRHI::resize(uint32_t, uint32_t) {
+    void VulkanRHI::setRenderSize(uint32_t width, uint32_t height) {
+        if (width == 0 || height == 0) {
+            throw std::invalid_argument("Render width and height must be at least 1.");
+        }
+        const auto limits = _vulkanContext.physicalDevice.getProperties().limits;
+        if (width > std::min({ limits.maxImageDimension2D, limits.maxFramebufferWidth, limits.maxViewportDimensions[0] }) ||
+            height > std::min({ limits.maxImageDimension2D, limits.maxFramebufferHeight, limits.maxViewportDimensions[1] })) {
+            throw std::invalid_argument("Render resolution exceeds GPU limits.");
+        }
+        const vk::Extent2D extent{ width, height };
+        if (extent != _renderExtent) {
+            recreateFrameTargets(extent, getMsaaSamples());
+            _renderExtent = extent;
+        }
+    }
+
+    void VulkanRHI::setOutputSize(uint32_t width, uint32_t height) {
         _swapchainDirty = true;
         recreateSwapchain();
     }
@@ -91,50 +107,54 @@ namespace tr::Rendering::Vulkan {
         }
     }
 
-    void VulkanRHI::createFrameTargets() {
-        const auto extent = _swapchain.extent();
-        const auto samples = getMsaaSamples();
-        for (uint32_t i = 0; i < _swapchain.imageCount(); ++i) {
-            if (samples > 1) {
-                _msaaTargets.push_back(_resources->createTexture({
-                    .name = "MSAA color " + std::to_string(i),
+    void VulkanRHI::recreateFrameTargets(vk::Extent2D extent, uint32_t samples) {
+        _vulkanContext.device.waitIdle();
+        std::vector<FrameTargets> targets(_swapchain.imageCount());
+        try {
+            for (size_t i = 0; i < targets.size(); ++i) {
+                auto& target = targets[i];
+                if (samples > 1) {
+                    target.msaa = _resources->createTexture({
+                        .name = "MSAA color " + std::to_string(i),
+                        .width = extent.width,
+                        .height = extent.height,
+                        .format = HDR_FORMAT,
+                        .filter = Filter::Nearest,
+                        .samples = samples,
+                    });
+                }
+                target.hdr = _resources->createTexture({
+                    .name = "HDR " + std::to_string(i),
                     .width = extent.width,
                     .height = extent.height,
                     .format = HDR_FORMAT,
+                    .filter = Filter::Nearest,
+                    .sampled = true,
+                });
+                target.depth = _resources->createTexture({
+                    .name = "Depth " + std::to_string(i),
+                    .width = extent.width,
+                    .height = extent.height,
+                    .format = getDepthFormat(),
+                    .filter = Filter::Nearest,
                     .samples = samples,
-                }));
+                });
             }
-            _hdrTargets.push_back(_resources->createTexture({
-                .name = "HDR " + std::to_string(i),
-                .width = extent.width,
-                .height = extent.height,
-                .format = HDR_FORMAT,
-                .samples = 1,
-                .sampled = true,
-            }));
-            _depthTargets.push_back(_resources->createTexture({
-                .name = "Depth " + std::to_string(i),
-                .width = extent.width,
-                .height = extent.height,
-                .format = getDepthFormat(),
-                .samples = samples,
-            }));
         }
+        catch (...) {
+            destroyFrameTargets(targets);
+            throw;
+        }
+        _frameTargets.swap(targets);
+        destroyFrameTargets(targets);
     }
 
-    void VulkanRHI::destroyFrameTargets() {
-        for (const auto handle : _hdrTargets) {
-            _resources->destroyTexture(handle);
+    void VulkanRHI::destroyFrameTargets(const std::vector<FrameTargets>& targets) {
+        for (const auto& target : targets) {
+            _resources->forgetTexture(target.hdr);
+            _resources->forgetTexture(target.msaa);
+            _resources->forgetTexture(target.depth);
         }
-        for (const auto handle : _msaaTargets) {
-            _resources->destroyTexture(handle);
-        }
-        for (const auto handle : _depthTargets) {
-            _resources->destroyTexture(handle);
-        }
-        _hdrTargets.clear();
-        _msaaTargets.clear();
-        _depthTargets.clear();
     }
 
     void VulkanRHI::recreateSwapchain() {
@@ -142,7 +162,6 @@ namespace tr::Rendering::Vulkan {
             return;
         }
         _vulkanContext.device.waitIdle();
-        destroyFrameTargets();
         for (auto handle : _backbuffers) {
             _resources->forgetTexture(handle);
         }
@@ -153,7 +172,9 @@ namespace tr::Rendering::Vulkan {
             _vsyncEnabled = true;
         }
         importBackbuffers();
-        createFrameTargets();
+        if (_frameTargets.size() != _swapchain.imageCount()) {
+            recreateFrameTargets(_renderExtent, getMsaaSamples());
+        }
         _uiRenderer->recreate();
         _swapchainDirty = false;
     }
@@ -196,10 +217,8 @@ namespace tr::Rendering::Vulkan {
             return;
         }
 
-        _vulkanContext.device.waitIdle();
+        recreateFrameTargets(_renderExtent, samples);
         _vulkanContext.msaaSamples = sampleCount;
-        destroyFrameTargets();
-        createFrameTargets();
     }
 
     void VulkanRHI::setVsyncEnabled(bool enabled) {
@@ -322,17 +341,17 @@ namespace tr::Rendering::Vulkan {
 
         _commandAdapter->reset(commandBuffer);
         _frameStarted = true;
-        const auto extent = _swapchain.extent();
+        const auto swapchainExtent = _swapchain.extent();
+        const auto& targets = _frameTargets.at(_currentImageIndex);
         return FrameContext{
             .cmd = *_commandAdapter,
             .slot = _currentFrame,
-            .extent = { extent.width, extent.height },
+            .renderExtent = { _renderExtent.width, _renderExtent.height },
+            .outputExtent = { swapchainExtent.width, swapchainExtent.height },
             .backbuffer = _backbuffers.at(_currentImageIndex),
-            .hdrTarget = _hdrTargets.at(_currentImageIndex),
-            .colorTarget = _msaaTargets.empty()
-                ? _hdrTargets.at(_currentImageIndex)
-                : _msaaTargets.at(_currentImageIndex),
-            .depthTarget = _depthTargets.at(_currentImageIndex),
+            .hdrTarget = targets.hdr,
+            .colorTarget = targets.msaa.isValid() ? targets.msaa : targets.hdr,
+            .depthTarget = targets.depth,
             .colorFormat = fromVulkanFormat(_swapchain.format()),
             .backbufferInitialState = _backbufferStates.at(_currentImageIndex),
         };

@@ -1,59 +1,37 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <utility>
-#include <vector>
 
 #include <gtest/gtest.h>
 
-#include "application.h"
 #include "camera.h"
 #include "demo_scenes.h"
 #include "environment.h"
-#include "input.h"
 #include "post_processing_data.h"
 #include "renderer.h"
 #include "scene_builder.h"
-#include "ui_provider.h"
-#include "vulkan_rhi.h"
+#include "vulkan_test.h"
 
 namespace tr::Tests {
-    class DemoSmokeTest : public testing::TestWithParam<Loading::DemoScene> {
-    protected:
-        std::mutex _validationMutex;
-        std::vector<std::string> _validationMessages;
-        std::unique_ptr<App::Application> _application;
-        std::unique_ptr<App::Input> _input;
-        std::unique_ptr<UI::UIProvider> _uiProvider;
-        std::unique_ptr<Rendering::Vulkan::VulkanRHI> _rhi;
+    class DemoSceneTest : public VulkanTest {
+    public:
+        explicit DemoSceneTest(Loading::DemoScene demo) : _demo(demo) {}
+
+    private:
+        Loading::DemoScene _demo;
         std::unique_ptr<Rendering::Renderer> _renderer;
         std::unique_ptr<const Data::Scene> _scene;
 
-        void SetUp() override {
-            _application = std::make_unique<App::Application>(App::Application{
-                .name = "tinyrenderer demo smoke test",
-                .version = "0.0.1",
-                .window = std::make_unique<App::Window>(640, 480, GetParam().name, false)
-            });
-            _input = std::make_unique<App::Input>(*_application->window);
-            _uiProvider = std::make_unique<UI::UIProvider>(*_application->window, *_input);
+        void TestBody() override;
 
-            Rendering::Vulkan::ValidationOptions validation{
-                .enabled = true,
-                .synchronizationValidation = true,
-                .onMessage = [this](auto, std::string_view message) {
-                    std::lock_guard lock(_validationMutex);
-                    _validationMessages.emplace_back(message);
-                }
-            };
-            _rhi = std::make_unique<Rendering::Vulkan::VulkanRHI>(*_application, std::move(validation));
+        void SetUp() override {
+            setUpVulkan("tinyrenderer demo smoke test", _demo.name);
             ASSERT_TRUE(_rhi->validationEnabled());
             _renderer = std::make_unique<Rendering::Renderer>(*_rhi);
 
             Loading::SceneBuilder builder(_renderer->getResources());
-            GetParam().build(builder);
+            _demo.build(builder);
             _scene = builder.build();
             ASSERT_FALSE(_scene->getObjects().empty());
             _renderer->prepareScene(*_scene);
@@ -66,19 +44,11 @@ namespace tr::Tests {
             }
             _scene.reset();
             _renderer.reset();
-            _rhi.reset();
-            _uiProvider.reset();
-            _input.reset();
-            _application.reset();
-
-            std::lock_guard lock(_validationMutex);
-            for (const auto& message : _validationMessages) {
-                ADD_FAILURE() << message;
-            }
+            VulkanTest::TearDown();
         }
     };
 
-    TEST_P(DemoSmokeTest, LoadsMovesCameraAndCloses) {
+    void DemoSceneTest::TestBody() {
         constexpr uint32_t frameCount = 24;
         const auto bounds = _scene->getBounds();
         const float radius = std::max(1.0f, glm::length(bounds.getSize()) * 0.5f);
@@ -102,7 +72,7 @@ namespace tr::Tests {
             _application->window->pollEvents();
             ASSERT_FALSE(_application->window->shouldClose());
             if (_application->window->wasResized()) {
-                _rhi->resize(_application->window->width(), _application->window->height());
+                _rhi->setOutputSize(_application->window->width(), _application->window->height());
                 _application->window->clearResizedFlag();
             }
 
@@ -116,12 +86,12 @@ namespace tr::Tests {
         EXPECT_EQ(renderedFrames, frameCount);
     }
 
-    INSTANTIATE_TEST_SUITE_P(
-        DemoScenes,
-        DemoSmokeTest,
-        testing::ValuesIn(Loading::getDemoScenes()),
-        [](const testing::TestParamInfo<Loading::DemoScene>& info) {
-            return std::string(info.param.id);
+    void registerDemoSceneTests() {
+        for (const auto& demo : Loading::getDemoScenes()) {
+            const std::string name(demo.id);
+            testing::RegisterTest("DemoScenes", name.c_str(), nullptr, nullptr, __FILE__, __LINE__, [demo] {
+                return new DemoSceneTest(demo);
+            });
         }
-    );
+    }
 }

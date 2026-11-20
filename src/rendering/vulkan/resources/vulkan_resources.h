@@ -41,7 +41,8 @@ namespace tr::Rendering::Vulkan {
         Handle<GPUTexture> storeTexture(
             std::string_view name,
             VulkanImage image,
-            bool repeat,
+            Filter filter = Filter::Linear,
+            bool repeat = true,
             bool comparison = false
         );
         Handle<Cubemap> generateCubemapResources(VulkanImage skybox, std::string name);

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 
 #include <fmt/format.h>
 
@@ -174,6 +175,37 @@ namespace tr {
     }
 
     void TinyRenderer::drawSettingsSection() {
+        constexpr float sizeFieldWidth = 44.0f;
+        const bool widthChanged = uiProvider.inputInt("##Render width", &pendingRenderSize.x, 0, 0, sizeFieldWidth);
+        uiProvider.sameLine();
+        uiProvider.text("x");
+        uiProvider.sameLine();
+        const bool heightChanged = uiProvider.inputInt("##Render height", &pendingRenderSize.y, 0, 0, sizeFieldWidth);
+        if (widthChanged || heightChanged) {
+            pendingRenderSize = glm::max(pendingRenderSize, glm::ivec2(1));
+            renderSizeError.clear();
+        }
+        uiProvider.sameLine();
+        const auto renderSize = glm::uvec2(pendingRenderSize);
+        uiProvider.beginDisabled(renderSize == rhi->getRenderSize());
+        const bool apply = uiProvider.button("Apply");
+        uiProvider.endDisabled();
+        uiProvider.sameLine();
+        uiProvider.text("Resolution");
+
+        if (apply) {
+            try {
+                rhi->setRenderSize(renderSize.x, renderSize.y);
+                renderSizeError.clear();
+            }
+            catch (const std::exception& error) {
+                renderSizeError = error.what();
+            }
+        }
+        if (!renderSizeError.empty()) {
+            uiProvider.text(renderSizeError);
+        }
+        
         const uint32_t currentSamples = rhi->getMsaaSamples();
         std::vector<std::string> sampleLabels;
         std::vector<const char*> sampleNames;

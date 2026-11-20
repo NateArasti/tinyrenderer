@@ -42,8 +42,6 @@ namespace tr::Rendering::Vulkan {
 
         vk::Image image(uint32_t index) const { return _images.at(index).image; }
         const vk::raii::ImageView& imageView(uint32_t index) const { return _images.at(index).view; }
-        const vk::raii::Semaphore& renderFinished(uint32_t index) const {
-            return _images.at(index).renderFinished;
-        }
+        const vk::raii::Semaphore& renderFinished(uint32_t index) const { return _images.at(index).renderFinished; }
     };
 }

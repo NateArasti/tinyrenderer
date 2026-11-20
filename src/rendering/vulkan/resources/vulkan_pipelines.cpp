@@ -62,10 +62,13 @@ namespace tr::Rendering::Vulkan {
             .srcAlphaBlendFactor = vk::BlendFactor::eOne,
             .dstAlphaBlendFactor = vk::BlendFactor::eZero,
             .alphaBlendOp = vk::BlendOp::eAdd,
-            .colorWriteMask = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-                              vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA,
+            .colorWriteMask =
+                vk::ColorComponentFlagBits::eR |
+                vk::ColorComponentFlagBits::eG |
+                vk::ColorComponentFlagBits::eB |
+                vk::ColorComponentFlagBits::eA,
         };
-        const bool hasColor = desc.colorFormat != Undefined;
+        const bool hasColor = desc.colorFormat != Format::Undefined;
         vk::PipelineColorBlendStateCreateInfo blend{
             .attachmentCount = hasColor ? 1u : 0u,
             .pAttachments = &attachment,

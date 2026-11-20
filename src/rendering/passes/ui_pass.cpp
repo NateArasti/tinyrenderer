@@ -19,7 +19,7 @@ namespace tr::Rendering {
         }
 
         cmd.beginRendering({
-            .renderArea = { .extent = frame.extent },
+            .renderArea = { .extent = frame.outputExtent },
             .colorAttachment = {
                 .target = context.texture(target),
                 .load = true,

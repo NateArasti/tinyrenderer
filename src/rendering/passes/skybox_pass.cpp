@@ -79,7 +79,7 @@ namespace tr::Rendering {
         cmd.beginRendering({
             .renderArea{
                 .offset = glm::vec2(0, 0),
-                .extent = frame.extent,
+                .extent = frame.renderExtent,
             },
             .colorAttachment{
                 .target = context.texture(target),

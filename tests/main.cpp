@@ -3,6 +3,10 @@
 
 #include <gtest/gtest.h>
 
+namespace tr::Tests {
+    void registerDemoSceneTests();
+}
+
 int main(int argc, char** argv) {
 #ifdef _WIN32
     const int result = _putenv_s("VK_IMPLICIT_LAYER_PATH", TEST_IMPLICIT_LAYER_PATH);
@@ -15,5 +19,6 @@ int main(int argc, char** argv) {
     }
 
     testing::InitGoogleTest(&argc, argv);
+    tr::Tests::registerDemoSceneTests();
     return RUN_ALL_TESTS();
 }

@@ -337,7 +337,7 @@ namespace tr::Rendering {
         const Data::Environment& environment,
         float sceneScale
     ) {
-        frame.cameraData = createCameraData(camera, frame.extent.x / frame.extent.y);
+        frame.cameraData = createCameraData(camera, frame.renderExtent.x / frame.renderExtent.y);
         frame.cameraData.proj[1][1] *= _rhi.getProjectionYSign();
         frame.environmentData = createEnvironmentData(scene, environment, _starAxis, sceneScale);
         if (!environment.skyboxHandle.isValid()) {

@@ -47,6 +47,8 @@ namespace tr {
 
     void TinyRenderer::setupRendering() {
         rhi = std::make_unique<Rendering::Vulkan::VulkanRHI>(application);
+        rhi->setRenderSize(1920, 1080);
+        pendingRenderSize = glm::ivec2(rhi->getRenderSize());
         renderer = std::make_unique<Rendering::Renderer>(*rhi);
     }
 
@@ -62,7 +64,7 @@ namespace tr {
         App::Window& window = *application.window;
         if (!window.wasResized()) return;
 
-        rhi->resize(window.width(), window.height());
+        rhi->setOutputSize(window.width(), window.height());
         window.clearResizedFlag();
         fmt::println("Window was resized to ({}, {}).", window.width(), window.height());
     }

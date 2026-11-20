@@ -10,7 +10,8 @@ namespace tr::Rendering {
         CommandBuffer& cmd;
 
         uint32_t slot;
-        glm::vec2 extent;
+        glm::vec2 renderExtent;
+        glm::vec2 outputExtent;
         Handle<GPUTexture> backbuffer;
         Handle<GPUTexture> hdrTarget;
         Handle<GPUTexture> colorTarget;

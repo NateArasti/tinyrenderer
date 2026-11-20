@@ -66,6 +66,8 @@ namespace tr {
 
         float smoothedDeltaTime = 1.0f / 60.0f;
         std::vector<uint32_t> supportedMsaaSamples;
+        glm::ivec2 pendingRenderSize{};
+        std::string renderSizeError;
         std::optional<double> cpuFrameMilliseconds;
         std::optional<double> gpuFrameMilliseconds;
         std::string cpuName;

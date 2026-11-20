@@ -8,12 +8,13 @@
 #include <string>
 #include <vector>
 #include <span>
+#include <optional>
 
 namespace tr::Rendering {
     using Data::Handle;
     using Data::Shader;
 
-    enum Format {
+    enum class Format {
         Undefined,
         R8G8B8A8UNorm,
         R8G8B8A8SRGB,
@@ -29,6 +30,11 @@ namespace tr::Rendering {
         R32SFloat,
     };
 
+    enum class Filter {
+        Nearest,
+        Linear,
+    };
+
     enum class TextureState {
         Undefined,
         ColorAttachment,
@@ -42,6 +48,7 @@ namespace tr::Rendering {
         uint32_t width = 0;
         uint32_t height = 0;
         Format format = Format::Undefined;
+        Filter filter = Filter::Linear;
         uint32_t samples = 1;
         bool sampled = false;
         bool comparisonSampler = false;
@@ -199,6 +206,7 @@ namespace tr::Rendering {
 
     struct RenderingDesc {
         RenderArea renderArea;
+        std::optional<RenderArea> outputArea;
         ColorAttachmentDesc colorAttachment;
         DepthAttachmentDesc depthAttachment;
     };

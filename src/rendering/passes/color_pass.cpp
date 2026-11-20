@@ -71,10 +71,10 @@ namespace tr::Rendering {
             .shader = _shader,
             .vertexBinding = { sizeof(Data::Mesh::Vertex) },
             .vertexAttributes = {
-                { 0, R32G32B32SFloat, offsetof(Data::Mesh::Vertex, position) },
-                { 1, R32G32B32SFloat, offsetof(Data::Mesh::Vertex, normal) },
-                { 2, R32G32SFloat, offsetof(Data::Mesh::Vertex, uv) },
-                { 3, R32G32B32A32SFloat, offsetof(Data::Mesh::Vertex, color) }
+                { 0, Format::R32G32B32SFloat, offsetof(Data::Mesh::Vertex, position) },
+                { 1, Format::R32G32B32SFloat, offsetof(Data::Mesh::Vertex, normal) },
+                { 2, Format::R32G32SFloat, offsetof(Data::Mesh::Vertex, uv) },
+                { 3, Format::R32G32B32A32SFloat, offsetof(Data::Mesh::Vertex, color) }
             },
             .rasterization = { .cullMode = _shader.cullMode },
             .depth = {
@@ -142,7 +142,7 @@ namespace tr::Rendering {
     void ColorPass::execute(CommandBuffer& cmd, RenderGraphContext& context, FrameContext& frame) {
         updateBindings(context, frame);
         cmd.beginRendering({
-            .renderArea = { .extent = frame.extent },
+            .renderArea = { .extent = frame.renderExtent },
             .colorAttachment = {
                 .target = context.texture(target),
                 .load = true,

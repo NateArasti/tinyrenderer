@@ -5,31 +5,31 @@
 namespace tr::Rendering::Vulkan {
     vk::Format toVulkanFormat(Format format) {
         switch (format) {
-            case Undefined:
+            case Format::Undefined:
                 return vk::Format::eUndefined;
-            case R8G8B8A8UNorm:
+            case Format::R8G8B8A8UNorm:
                 return vk::Format::eR8G8B8A8Unorm;
-            case R8G8B8A8SRGB:
+            case Format::R8G8B8A8SRGB:
                 return vk::Format::eR8G8B8A8Srgb;
-            case B8G8R8A8UNorm:
+            case Format::B8G8R8A8UNorm:
                 return vk::Format::eB8G8R8A8Unorm;
-            case B8G8R8A8SRGB:
+            case Format::B8G8R8A8SRGB:
                 return vk::Format::eB8G8R8A8Srgb;
-            case D32SFloat:
+            case Format::D32SFloat:
                 return vk::Format::eD32Sfloat;
-            case D32SFloatS8:
+            case Format::D32SFloatS8:
                 return vk::Format::eD32SfloatS8Uint;
-            case D24UNormS8:
+            case Format::D24UNormS8:
                 return vk::Format::eD24UnormS8Uint;
-            case R16G16B16A16SFloat:
+            case Format::R16G16B16A16SFloat:
                 return vk::Format::eR16G16B16A16Sfloat;
-            case R32G32B32A32SFloat:
+            case Format::R32G32B32A32SFloat:
                 return vk::Format::eR32G32B32A32Sfloat;
-            case R32G32B32SFloat:
+            case Format::R32G32B32SFloat:
                 return vk::Format::eR32G32B32Sfloat;
-            case R32G32SFloat:
+            case Format::R32G32SFloat:
                 return vk::Format::eR32G32Sfloat;
-            case R32SFloat:
+            case Format::R32SFloat:
                 return vk::Format::eR32Sfloat;
         }
         throw std::invalid_argument("Unsupported format");

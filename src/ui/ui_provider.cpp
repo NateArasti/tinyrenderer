@@ -162,8 +162,11 @@ namespace tr::UI {
         });
     }
 
-    bool UIProvider::inputInt(const char* label, int* value, int step, int stepFast) {
+    bool UIProvider::inputInt(const char* label, int* value, int step, int stepFast, float width) {
         return drawProperty(label, [&](const char* id) {
+            if (width > 0.0f) {
+                ImGui::SetNextItemWidth(std::min(width, ImGui::CalcItemWidth()));
+            }
             return ImGui::InputInt(id, value, step, stepFast);
         });
     }

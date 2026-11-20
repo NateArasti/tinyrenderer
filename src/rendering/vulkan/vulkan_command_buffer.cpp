@@ -100,6 +100,7 @@ namespace tr::Rendering::Vulkan {
         const auto depthAttachment = createDepthAttachment(desc.depthAttachment);
         const bool hasColor = desc.colorAttachment.target.isValid();
         const bool hasDepth = desc.depthAttachment.target.isValid();
+        const auto area = desc.outputArea.value_or(desc.renderArea);
         const vk::Rect2D renderArea{
             .offset = { static_cast<int32_t>(desc.renderArea.offset.x), static_cast<int32_t>(desc.renderArea.offset.y) },
             .extent = { static_cast<uint32_t>(desc.renderArea.extent.x),
@@ -115,15 +116,24 @@ namespace tr::Rendering::Vulkan {
         _commandBuffer->setViewport(
             0,
             vk::Viewport(
-                desc.renderArea.offset.x,
-                desc.renderArea.offset.y,
-                desc.renderArea.extent.x,
-                desc.renderArea.extent.y,
-                0.0f,
-                1.0f
+                area.offset.x, area.offset.y,
+                area.extent.x, area.extent.y,
+                0.0f, 1.0f
             )
         );
-        _commandBuffer->setScissor(0, renderArea);
+        _commandBuffer->setScissor(
+            0,
+            vk::Rect2D{
+                .offset = {
+                    static_cast<int32_t>(area.offset.x),
+                    static_cast<int32_t>(area.offset.y)
+                },
+                .extent = {
+                    static_cast<uint32_t>(area.extent.x),
+                    static_cast<uint32_t>(area.extent.y)
+                },
+            }
+        );
     }
 
     void VulkanCommandBuffer::endRendering() {

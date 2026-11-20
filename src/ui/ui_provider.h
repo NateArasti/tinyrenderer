@@ -66,7 +66,7 @@ namespace tr::UI {
             SliderFlags flags = SliderFlags::None
         );
         bool colorEdit3(const char* label, float* value);
-        bool inputInt(const char* label, int* value, int step = 1, int stepFast = 100);
+        bool inputInt(const char* label, int* value, int step = 1, int stepFast = 100, float width = 0.0f);
         bool combo(const char* label, int* selected, std::span<const char* const> items);
         bool button(const char* label, float width = 0.0f);
         bool checkbox(const char* label, bool* value);

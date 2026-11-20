@@ -59,7 +59,7 @@ namespace tr::Rendering::Vulkan {
             false
         );
         const auto name = texture.name.empty() ? "Texture" : texture.name;
-        const auto image = storeTexture(name, std::move(allocation), true);
+        const auto image = storeTexture(name, std::move(allocation), Filter::Linear, true);
         Handle<Texture> handle{ _nextHandle++ };
         _assetTextures.emplace(handle.index, image);
         return handle;
@@ -78,9 +78,9 @@ namespace tr::Rendering::Vulkan {
         auto irradiance = _cubemapConverter.convolveIrradiance(skybox);
         auto prefilter = _cubemapConverter.prefilterEnvironment(skybox);
         const GPUCubemap cubemap{
-            .skybox = storeTexture(name + " skybox", std::move(skybox), false),
-            .irradiance = storeTexture(name + " irradiance", std::move(irradiance), false),
-            .prefiltered = storeTexture(name + " prefilter", std::move(prefilter), false),
+            .skybox = storeTexture(name + " skybox", std::move(skybox), Filter::Linear, false),
+            .irradiance = storeTexture(name + " irradiance", std::move(irradiance), Filter::Linear, false),
+            .prefiltered = storeTexture(name + " prefilter", std::move(prefilter), Filter::Linear, false),
             .brdf = _fallbackCubemap.brdf,
         };
         Handle<Cubemap> handle{ _nextHandle++ };

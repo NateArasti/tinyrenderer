@@ -7,6 +7,21 @@
 #include "vulkan_utility.h"
 
 namespace tr::Rendering::Vulkan {
+    namespace {
+        vk::Filter convertToVulkan(Filter filter) {
+            switch (filter)
+            {
+            case Filter::Nearest:
+                return vk::Filter::eNearest;
+            case Filter::Linear:
+                return vk::Filter::eLinear;
+            
+            default:
+                return vk::Filter::eLinear;
+            }
+        }
+    }
+
     void VulkanResources::createFallbackTextures() {
         const std::array<uint8_t, 4> white{ 255, 255, 255, 255 };
         auto whiteImage = _allocator.uploadTexture(
@@ -17,7 +32,7 @@ namespace tr::Rendering::Vulkan {
             1,
             false
         );
-        _fallbackTexture = storeTexture("Fallback texture", std::move(whiteImage), true);
+        _fallbackTexture = storeTexture("Fallback texture", std::move(whiteImage), Filter::Linear, true);
 
         const std::array<uint8_t, 24> black{};
         const std::array<std::pair<Handle<GPUTexture>*, std::string_view>, 3> cubemapFallbacks{
@@ -34,16 +49,17 @@ namespace tr::Rendering::Vulkan {
                 6,
                 true
             );
-            *handle = storeTexture(name, std::move(blackImage), false);
+            *handle = storeTexture(name, std::move(blackImage), Filter::Linear, false);
         }
 
         auto brdfImage = _cubemapConverter.integrateBRDF();
-        _fallbackCubemap.brdf = storeTexture("BRDF LUT", std::move(brdfImage), false);
+        _fallbackCubemap.brdf = storeTexture("BRDF LUT", std::move(brdfImage), Filter::Linear, false);
     }
 
     Handle<GPUTexture> VulkanResources::storeTexture(
         std::string_view name,
         VulkanImage image,
+        Filter filter,
         bool repeat,
         bool comparison
     ) {
@@ -62,8 +78,8 @@ namespace tr::Rendering::Vulkan {
             mode = vk::SamplerAddressMode::eRepeat;
         }
         record.ownedSampler = vk::raii::Sampler(_context.device, {
-            .magFilter = vk::Filter::eLinear,
-            .minFilter = vk::Filter::eLinear,
+            .magFilter = convertToVulkan(filter),
+            .minFilter = convertToVulkan(filter),
             .mipmapMode = vk::SamplerMipmapMode::eLinear,
             .addressModeU = mode,
             .addressModeV = mode,
@@ -117,7 +133,7 @@ namespace tr::Rendering::Vulkan {
             .usage = usage,
             .aspectMask = depth ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor,
         });
-        return storeTexture(desc.name, std::move(image), false, desc.comparisonSampler);
+        return storeTexture(desc.name, std::move(image), desc.filter, false, desc.comparisonSampler);
     }
 
     void VulkanResources::destroyTexture(Handle<GPUTexture> handle) {

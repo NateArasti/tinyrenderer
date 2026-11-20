@@ -34,7 +34,7 @@ namespace tr::Rendering {
         std::array<Handle<GPUBuffer>, MAX_FRAMES_IN_FLIGHT> _cameraDataBuffers;
         std::array<Handle<GPUBuffer>, MAX_FRAMES_IN_FLIGHT> _environmentDataBuffers;
 
-        Format _colorFormat = Undefined;
+        Format _colorFormat = Format::Undefined;
         uint32_t _samples = 0;
         glm::vec3 _starAxis{ 1.0f, 0.0f, 0.0f };
         Handle<Cubemap> _proceduralCubemap;

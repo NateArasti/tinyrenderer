@@ -15,11 +15,17 @@
 namespace tr::Rendering::Vulkan {
     class VulkanRHI : public RHI {
     private:
+        struct FrameTargets {
+            Handle<GPUTexture> hdr;
+            Handle<GPUTexture> msaa;
+            Handle<GPUTexture> depth;
+        };
+
         const tr::App::Application& _application;
         VulkanContext _vulkanContext;
         VulkanAllocator _allocator;
         Swapchain _swapchain;
-
+        
         std::unique_ptr<VulkanResources> _resources;
         std::unique_ptr<VulkanCommandBuffer> _commandAdapter;
         std::unique_ptr<VulkanUIRenderer> _uiRenderer;
@@ -34,9 +40,7 @@ namespace tr::Rendering::Vulkan {
         std::optional<double> _gpuFrameMilliseconds;
         
         std::vector<Handle<GPUTexture>> _backbuffers;
-        std::vector<Handle<GPUTexture>> _hdrTargets;
-        std::vector<Handle<GPUTexture>> _msaaTargets;
-        std::vector<Handle<GPUTexture>> _depthTargets;
+        std::vector<FrameTargets> _frameTargets;
         std::vector<TextureState> _backbufferStates;
 
         std::array<vk::raii::Semaphore, MAX_FRAMES_IN_FLIGHT> _imageAvailableSemaphores{
@@ -54,39 +58,48 @@ namespace tr::Rendering::Vulkan {
         bool _swapchainDirty = false;
         bool _vsyncEnabled = true;
 
+        vk::Extent2D _renderExtent = { 1280, 720 };
+
         void createCommandPool();
         void createCommandBuffers();
         void createSyncObjects();
         void createTimestampQueries();
         void recreateSwapchain();
         void importBackbuffers();
-        void createFrameTargets();
-        void destroyFrameTargets();
+        void recreateFrameTargets(vk::Extent2D extent, uint32_t samples);
+        void destroyFrameTargets(const std::vector<FrameTargets>& targets);
 
     public:
         explicit VulkanRHI(const tr::App::Application& application, ValidationOptions validation = {});
         ~VulkanRHI() override;
+        
+        bool validationEnabled() const { return _vulkanContext.validationEnabled(); }
 
         std::string getDeviceName() const override;
         std::optional<App::MemoryUsage> getMemoryUsage() const override;
         bool isDeviceMemoryShared() const override;
         double getFrameWaitMilliseconds() const override { return _frameWaitMilliseconds; }
         std::optional<double> getGpuFrameMilliseconds() const override { return _gpuFrameMilliseconds; }
-        bool validationEnabled() const { return _vulkanContext.validationEnabled(); }
-        void resize(uint32_t width, uint32_t height) override;
+
         uint32_t getMsaaSamples() const override;
         std::vector<uint32_t> getSupportedMsaaSamples() const override;
         void setMsaaSamples(uint32_t samples) override;
+
         bool getVsyncEnabled() const override { return _vsyncEnabled; }
         bool supportsVsyncToggle() const override { return _swapchain.supportsVsyncToggle(); }
         void setVsyncEnabled(bool enabled) override;
+
         float getProjectionYSign() const override { return -1.0f; }
         Format getDepthFormat() const override;
-        void waitIdle() override;
+        
+        glm::uvec2 getRenderSize() const override { return { _renderExtent.width, _renderExtent.height }; }
+        void setRenderSize(uint32_t width, uint32_t height) override;
+        void setOutputSize(uint32_t width, uint32_t height) override;
 
         RenderingResources& resources() override { return *_resources; }
         UIRenderer& uiRenderer() override;
 
+        void waitIdle() override;
         std::optional<FrameContext> startFrame() override;
         void endFrame() override;
     };
