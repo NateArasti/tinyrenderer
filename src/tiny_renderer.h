@@ -30,7 +30,7 @@ namespace tr {
         };
 
         static constexpr std::string_view APP_NAME = "tinyrenderer";
-        static constexpr std::string_view APP_VERSION = "v0.0.1";
+        static constexpr std::string_view APP_VERSION = "v0.1.0";
 
         using SceneLoader = void (*)(Loading::SceneBuilder&);
 
