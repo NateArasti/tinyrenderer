@@ -1,9 +1,11 @@
+import shared_structs;
+
 struct PushConstants {
     float4x4 lightViewProj;
-    float4x4 model;
 };
 
 [[vk::push_constant]] PushConstants pcs;
+[[vk::binding(0, 0)]] StructuredBuffer<InstanceData> instances;
 
 struct VSInput {
     float3 position : POSITION;
@@ -17,8 +19,9 @@ struct VSOutput {
 };
 
 [shader("vertex")]
-VSOutput main(VSInput input) {
+VSOutput main(VSInput input, uint instanceIndex: SV_VulkanInstanceID) {
     VSOutput output;
-    output.position = mul(pcs.lightViewProj, mul(pcs.model, float4(input.position, 1.0)));
+    InstanceData instance = instances[instanceIndex];
+    output.position = mul(pcs.lightViewProj, mul(instance.model, float4(input.position, 1.0)));
     return output;
 }

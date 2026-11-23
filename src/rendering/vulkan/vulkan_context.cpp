@@ -1,6 +1,10 @@
 #include "vulkan_context.h"
 
+#include <algorithm>
+#include <cstring>
 #include <iostream>
+#include <stdexcept>
+#include <utility>
 
 #define VULKAN_HPP_NO_STRUCT_CONSTRUCTORS
 #include <vulkan/vulkan_raii.hpp>
@@ -11,25 +15,39 @@
 #include "application.h"
 
 namespace tr::Rendering::Vulkan {
-#ifdef NDEBUG
-    constexpr bool enableValidationLayers = false;
-#else
-    constexpr bool enableValidationLayers = true;
-#endif
-        
     namespace {
+        VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
+            vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
+            vk::DebugUtilsMessageTypeFlagsEXT type,
+            const vk::DebugUtilsMessengerCallbackDataEXT* data,
+            void* userData
+        ) {
+            std::cerr << "validation layer: " << to_string(severity) << " type " << to_string(type)
+                << " msg: " << data->pMessage << std::endl;
+            const auto& validation = *static_cast<const ValidationOptions*>(userData);
+            if (validation.onMessage) {
+                validation.onMessage(severity, data->pMessage);
+            }
+            return vk::False;
+        }
+
+        vk::DebugUtilsMessengerCreateInfoEXT createDebugMessengerInfo(ValidationOptions& validation) {
+            return {
+                .messageSeverity = vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
+                    | vk::DebugUtilsMessageSeverityFlagBitsEXT::eError,
+                .messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
+                    | vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance
+                    | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
+                .pfnUserCallback = &debugCallback,
+                .pUserData = &validation,
+            };
+        }
+
         std::vector<const char*> getRequiredInstanceExtensions() {
             uint32_t glfwExtensionCount = 0;
             auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
-            std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-            
-            if (enableValidationLayers)
-            {
-                extensions.push_back(vk::EXTDebugUtilsExtensionName);
-            }
-
-            return extensions;
+            return std::vector(glfwExtensions, glfwExtensions + glfwExtensionCount);
         }
 
         bool isDeviceSuitable(
@@ -81,13 +99,15 @@ namespace tr::Rendering::Vulkan {
                 <
                 vk::PhysicalDeviceFeatures2,
                 vk::PhysicalDeviceVulkan13Features,
-                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
+                vk::PhysicalDeviceDescriptorIndexingFeatures
                 >();
             bool supportsRequiredFeatures =
                 features.template get<vk::PhysicalDeviceFeatures2>().features.samplerAnisotropy &&
                 features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
                 features.template get<vk::PhysicalDeviceVulkan13Features>().synchronization2 &&
-                features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+                features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState &&
+                features.template get<vk::PhysicalDeviceDescriptorIndexingFeatures>().shaderSampledImageArrayNonUniformIndexing;
 
             if (!supportsRequiredFeatures) {
                 return false;
@@ -102,8 +122,10 @@ namespace tr::Rendering::Vulkan {
         }
     }
 
-    VulkanContext::VulkanContext(const tr::App::Application& app) {
+    VulkanContext::VulkanContext(const tr::App::Application& app, ValidationOptions validation)
+        : _validation(std::move(validation)) {
         createInstance(app);
+        setupDebugMessenger();
         createSurface(app);
         pickPhysicalDevice();
         createLogicalDevice();
@@ -132,13 +154,16 @@ namespace tr::Rendering::Vulkan {
         throw std::runtime_error("failed to find supported format!");
     }
 
-    void VulkanContext::setDebugName(vk::ObjectType type, uint64_t handle, const char* name) {
-        if (!enableValidationLayers) return;
+    void VulkanContext::setDebugName(vk::ObjectType type, uint64_t handle, std::string_view name) {
+        if (!_debugUtilsEnabled || name.empty()) {
+            return;
+        }
 
+        const std::string objectName(name);
         vk::DebugUtilsObjectNameInfoEXT nameInfo{
             .objectType = type,
             .objectHandle = handle,
-            .pObjectName = name
+            .pObjectName = objectName.c_str(),
         };
         device.setDebugUtilsObjectNameEXT(nameInfo);
     }
@@ -153,7 +178,7 @@ namespace tr::Rendering::Vulkan {
         };
 
         std::vector<char const*> requiredLayers;
-        if (enableValidationLayers)
+        if (_validation.enabled)
         {
             requiredLayers.assign(_validationLayers.begin(), _validationLayers.end());
         }
@@ -176,6 +201,23 @@ namespace tr::Rendering::Vulkan {
 
         auto requiredExtensions = getRequiredInstanceExtensions();
         auto extensionProperties = context.enumerateInstanceExtensionProperties();
+        _debugUtilsEnabled = std::ranges::any_of(
+            extensionProperties,
+            [](const auto& extension) {
+                return strcmp(extension.extensionName, vk::EXTDebugUtilsExtensionName) == 0;
+            }
+        );
+        if (_debugUtilsEnabled) {
+            requiredExtensions.push_back(vk::EXTDebugUtilsExtensionName);
+        }
+        else if (_validation.enabled) {
+            throw std::runtime_error("Vulkan validation requires VK_EXT_debug_utils");
+        }
+        if (_validation.enabled && _validation.synchronizationValidation) {
+            const auto layerExtensions = context.enumerateInstanceExtensionProperties(std::string(_validationLayers.front()));
+            extensionProperties.insert(extensionProperties.end(), layerExtensions.begin(), layerExtensions.end());
+            requiredExtensions.push_back(vk::EXTLayerSettingsExtensionName);
+        }
         auto unsupportedPropertyIt = std::ranges::find_if(
             requiredExtensions,
             [&extensionProperties](auto const& requiredExtension) {
@@ -192,7 +234,24 @@ namespace tr::Rendering::Vulkan {
             throw std::runtime_error("Required extension not supported: " + std::string(*unsupportedPropertyIt));
         }
 
+        const vk::Bool32 enableSync = vk::True;
+        const vk::LayerSettingEXT syncSetting{
+            .pLayerName = "VK_LAYER_KHRONOS_validation",
+            .pSettingName = "validate_sync",
+            .type = vk::LayerSettingTypeEXT::eBool32,
+            .valueCount = 1,
+            .pValues = &enableSync,
+        };
+        const vk::LayerSettingsCreateInfoEXT layerSettings{
+            .settingCount = 1,
+            .pSettings = &syncSetting,
+        };
+        auto debugInfo = createDebugMessengerInfo(_validation);
+        if (_validation.synchronizationValidation) {
+            debugInfo.pNext = &layerSettings;
+        }
         vk::InstanceCreateInfo createInfo{
+            .pNext = _validation.enabled ? &debugInfo : nullptr,
             .pApplicationInfo = &appInfo,
             .enabledLayerCount = static_cast<uint32_t>(requiredLayers.size()),
             .ppEnabledLayerNames = requiredLayers.data(),
@@ -202,33 +261,11 @@ namespace tr::Rendering::Vulkan {
         instance = vk::raii::Instance(context, createInfo);
     }
 
-    static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(
-        vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
-        vk::DebugUtilsMessageTypeFlagsEXT type,
-        const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData,
-        void* pUserData
-    ) {
-        std::cerr << "validation layer: type " << to_string(type) << " msg: " << pCallbackData->pMessage << std::endl;
-        return vk::False;
-    }
-
     void VulkanContext::setupDebugMessenger() {
-        if (!enableValidationLayers) return;
-
-        vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-            vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
-		vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(
-            vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
-        vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfoEXT{
-            .messageSeverity = severityFlags,
-            .messageType = messageTypeFlags,
-            .pfnUserCallback = &debugCallback
-        };
-        
-        debugMessenger = instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
+        if (!_validation.enabled) {
+            return;
+        }
+        debugMessenger = instance.createDebugUtilsMessengerEXT(createDebugMessengerInfo(_validation));
     }
 
     void VulkanContext::createSurface(const tr::App::Application& application) {
@@ -298,19 +335,23 @@ namespace tr::Rendering::Vulkan {
         vk::StructureChain<
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceVulkan13Features,
-            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT,
+            vk::PhysicalDeviceDescriptorIndexingFeatures
         > featureChain = {
-                {
+                vk::PhysicalDeviceFeatures2{
                     .features = {
                         .samplerAnisotropy = true
                     }
                 },
-                {
+                vk::PhysicalDeviceVulkan13Features{
                     .synchronization2 = true,
                     .dynamicRendering = true
                 },
-                {
+                vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{
                     .extendedDynamicState = true
+                },
+                vk::PhysicalDeviceDescriptorIndexingFeatures{
+                    .shaderSampledImageArrayNonUniformIndexing = true,
                 }
         };
 
@@ -321,12 +362,21 @@ namespace tr::Rendering::Vulkan {
             .queueCount = 1,
             .pQueuePriorities = &queuePriority
         };
+        auto extensions = _requiredDeviceExtension;
+        for (const auto& extension : physicalDevice.enumerateDeviceExtensionProperties()) {
+            if (std::string_view(extension.extensionName.data()) == vk::EXTMemoryBudgetExtensionName) {
+                extensions.push_back(vk::EXTMemoryBudgetExtensionName);
+                _memoryBudgetSupported = true;
+                break;
+            }
+        }
+
         vk::DeviceCreateInfo deviceCreateInfo{
             .pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>(),
             .queueCreateInfoCount = 1,
             .pQueueCreateInfos = &deviceQueueCreateInfo,
-            .enabledExtensionCount = static_cast<uint32_t>(_requiredDeviceExtension.size()),
-            .ppEnabledExtensionNames = _requiredDeviceExtension.data()
+            .enabledExtensionCount = static_cast<uint32_t>(extensions.size()),
+            .ppEnabledExtensionNames = extensions.data()
         };
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);

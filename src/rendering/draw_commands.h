@@ -10,9 +10,10 @@
 
 namespace tr::Rendering {
     struct DrawCommand {
-        glm::mat4 modelMatrix = glm::mat4(1.0f);
-        tr::Resources::Handle<tr::Data::Mesh> mesh;
+        Handle<Mesh> mesh;
         uint32_t subMeshIndex = 0;
-        tr::Resources::Handle<tr::Data::Material> material;
+        uint32_t firstInstance = 0;
+        uint32_t instanceCount = 1;
+        glm::vec3 sortPosition = glm::vec3(0.0f);
     };
 }

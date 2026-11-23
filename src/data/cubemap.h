@@ -9,6 +9,5 @@ namespace tr::Data {
         std::vector<float> pixels;
         uint32_t width = 0;
         uint32_t height = 0;
-        bool hdr = false;
     };
 }

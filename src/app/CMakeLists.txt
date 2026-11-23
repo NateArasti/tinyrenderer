@@ -5,6 +5,10 @@ file(GLOB SOURCES
     "*.cpp" 
 )
 
+if(NOT WIN32)
+    list(FILTER SOURCES EXCLUDE REGEX "/windows_.*\\.cpp$")
+endif()
+
 add_library(app STATIC ${SOURCES})
 
 target_include_directories(app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -16,5 +20,5 @@ find_package(glm CONFIG REQUIRED)
 target_link_libraries(app INTERFACE glm::glm)
 
 if(WIN32)
-    target_link_libraries(app PRIVATE ole32 shell32)
+    target_link_libraries(app PRIVATE ole32 shell32 Psapi)
 endif()

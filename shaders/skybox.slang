@@ -1,13 +1,10 @@
-import scene_data;
+import shared_structs;
+import environment;
+import math;
 
-struct PushConstants {
-    float3 color;
-    float rotation;
-};
-
-[[vk::push_constant]] PushConstants pcs;
-[[vk::binding(0, 0)]] ConstantBuffer<SceneData> sceneData;
-[[vk::binding(0, 1)]] SamplerCube cubemap;
+[[vk::binding(0, 0)]] ConstantBuffer<EnvironmentData> environmentData;
+[[vk::binding(1, 0)]] ConstantBuffer<CameraData> cameraData;
+[[vk::binding(2, 0)]] SamplerCube cubemap;
 
 struct VSInput {
     float2 position : POSITION;
@@ -29,18 +26,13 @@ VSOutput vertMain(VSInput input) {
 [shader("fragment")]
 float4 fragMain(VSOutput input) : SV_TARGET {
     float3 viewDirection = normalize(float3(
-        input.coordinate.x / sceneData.proj[0][0],
-        input.coordinate.y / sceneData.proj[1][1],
-        -1.0
+        input.coordinate.x / cameraData.proj[0][0],
+        input.coordinate.y / cameraData.proj[1][1],
+        1.0
     ));
-    float3 worldDirection = normalize(mul(transpose((float3x3)sceneData.view), viewDirection));
-
-    float c = cos(pcs.rotation);
-    float s = sin(pcs.rotation);
-    float3 rotatedDirection = float3(
-        c * worldDirection.x - s * worldDirection.z,
-        worldDirection.y,
-        s * worldDirection.x + c * worldDirection.z
-    );
-    return float4(cubemap.Sample(rotatedDirection).rgb * pcs.color, 1.0);
+    float3 worldDirection = normalize(mul(transpose((float3x3)cameraData.view), viewDirection));
+    float3 rotatedDirection = rotate(worldDirection, float3(0, 1, 0), environmentData.rotation);
+    float3 color = cubemap.Sample(rotatedDirection).rgb;
+    color *= environmentData.tint * environmentData.intensity;
+    return float4(color, 1.0);
 }

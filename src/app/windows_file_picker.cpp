@@ -1,10 +1,16 @@
 #include "file_picker.h"
+#include "window.h"
 
 #include <filesystem>
 #include <utility>
 
 #include <windows.h>
 #include <shobjidl.h>
+
+#define GLFW_INCLUDE_NONE
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3.h>
+#include <GLFW/glfw3native.h>
 
 namespace tr::App {
     namespace {
@@ -22,9 +28,12 @@ namespace tr::App {
 
         class WindowsFilePicker final : public FilePicker {
         private:
+            HWND _owner;
             std::optional<std::filesystem::path> _result;
 
         public:
+            explicit WindowsFilePicker(HWND owner) : _owner(owner) {}
+
             void requestFile(const FilePickerOptions& options) override {
                 _result.reset();
 
@@ -59,7 +68,7 @@ namespace tr::App {
                         dialog->SetFileTypes(static_cast<UINT>(filters.size()), filters.data());
                     }
 
-                    if (SUCCEEDED(dialog->Show(nullptr))) {
+                    if (SUCCEEDED(dialog->Show(_owner))) {
                         IShellItem* item = nullptr;
                         if (SUCCEEDED(dialog->GetResult(&item))) {
                             PWSTR path = nullptr;
@@ -84,7 +93,7 @@ namespace tr::App {
         };
     }
 
-    std::unique_ptr<FilePicker> createFilePicker() {
-        return std::make_unique<WindowsFilePicker>();
+    std::unique_ptr<FilePicker> createFilePicker(const Window& owner) {
+        return std::make_unique<WindowsFilePicker>(glfwGetWin32Window(static_cast<GLFWwindow*>(owner.nativeHandle())));
     }
 }

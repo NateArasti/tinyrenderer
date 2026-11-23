@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 4.3.1)
 
+option(BUILD_TESTS "Build tests" OFF)
+if(BUILD_TESTS)
+    list(APPEND VCPKG_MANIFEST_FEATURES "tests")
+endif()
+
 project(
     tinyrenderer 
     VERSION 1.0 
@@ -9,11 +14,12 @@ project(
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(tinyrenderer
-    src/main.cpp
-    src/tiny_renderer.cpp
-    src/tiny_renderer.h
+file(GLOB SOURCES CONFIGURE_DEPENDS
+    "src/*.h"
+    "src/*.cpp"
 )
+
+add_executable(tinyrenderer ${SOURCES})
 if(WIN32)
     set_target_properties(tinyrenderer PROPERTIES
         WIN32_EXECUTABLE "$<$<CONFIG:Release>:TRUE>"
@@ -26,7 +32,6 @@ endif()
 add_subdirectory(third-party/ufbx)
 
 add_subdirectory(src/app)
-add_subdirectory(src/resources)
 add_subdirectory(src/data)
 add_subdirectory(src/embedded_shaders)
 add_subdirectory(src/rendering)
@@ -37,7 +42,6 @@ add_subdirectory(src/loader)
 target_link_libraries(tinyrenderer 
     PRIVATE 
         app
-        resources
         data
         embedded_shaders
         rendering
@@ -50,4 +54,9 @@ target_link_libraries(tinyrenderer PRIVATE rendering_vulkan)
 
 find_package(fmt REQUIRED)
 target_link_libraries(tinyrenderer PRIVATE fmt::fmt)
+
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 

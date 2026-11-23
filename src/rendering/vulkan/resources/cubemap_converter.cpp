@@ -1,15 +1,29 @@
 #include "cubemap_converter.h"
 
 #include <array>
+#include <bit>
+#include <cstring>
 #include <stdexcept>
 #include <vector>
 
 #include "equirectangular_conversion.h"
+#include "irradiance_convolution.h"
+#include "prefilter_environment.h"
+#include "brdf_integration.h"
+#include "procedural_sky_render.h"
+
 #include "import_error.h"
 
 namespace tr::Rendering::Vulkan {
-    CubemapConverter::CubemapConverter(VulkanContext& context, ResourceFactory& factory)
-        : _context(context), _factory(factory)
+    namespace {
+        struct PrefilterPushConstants {
+            uint32_t face;
+            float roughness;
+        };
+    }
+
+    CubemapConverter::CubemapConverter(VulkanContext& context, VulkanAllocator& allocator)
+        : _context(context), _allocator(allocator)
     {
         _commandPool = vk::raii::CommandPool(
             context.device,
@@ -21,10 +35,10 @@ namespace tr::Rendering::Vulkan {
 
         const std::array<float, 6> vertices{
             -1.0f, -1.0f,
-             3.0f, -1.0f,
-            -1.0f,  3.0f
+            -1.0f,  3.0f,
+             3.0f, -1.0f
         };
-        _vertexBuffer = factory.uploadBuffer(
+        _vertexBuffer = allocator.uploadBuffer(
             std::as_bytes(std::span(vertices)),
             vk::BufferUsageFlagBits::eVertexBuffer
         );
@@ -43,17 +57,36 @@ namespace tr::Rendering::Vulkan {
             }
         );
 
-        const vk::DescriptorPoolSize poolSize{
-            .type = vk::DescriptorType::eCombinedImageSampler,
-            .descriptorCount = 1
+        const std::array proceduralBindings{
+            vk::DescriptorSetLayoutBinding{
+                .binding = 0,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eFragment
+            },
+            vk::DescriptorSetLayoutBinding{
+                .binding = 1,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eFragment
+            }
+        };
+        _proceduralDescriptorSetLayout = vk::raii::DescriptorSetLayout(_context.device, {
+            .bindingCount = static_cast<uint32_t>(proceduralBindings.size()),
+            .pBindings = proceduralBindings.data()
+        });
+
+        const std::array poolSizes{
+            vk::DescriptorPoolSize{ vk::DescriptorType::eCombinedImageSampler, 1 },
+            vk::DescriptorPoolSize{ vk::DescriptorType::eUniformBuffer, 2 }
         };
         _descriptorPool = vk::raii::DescriptorPool(
             context.device,
             vk::DescriptorPoolCreateInfo{
                 .flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-                .maxSets = 1,
-                .poolSizeCount = 1,
-                .pPoolSizes = &poolSize
+                .maxSets = 2,
+                .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+                .pPoolSizes = poolSizes.data()
             }
         );
         _descriptorSet = std::move(context.device.allocateDescriptorSets({
@@ -62,25 +95,73 @@ namespace tr::Rendering::Vulkan {
             .pSetLayouts = &*_descriptorSetLayout
         }).front());
 
+        _proceduralDescriptorSet = std::move(context.device.allocateDescriptorSets({
+            .descriptorPool = *_descriptorPool,
+            .descriptorSetCount = 1,
+            .pSetLayouts = &*_proceduralDescriptorSetLayout
+        }).front());
+
+        const auto memoryProperties =
+            vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent;
+        _environmentBuffer = allocator.createBuffer(
+            sizeof(EnvironmentData), vk::BufferUsageFlagBits::eUniformBuffer, memoryProperties
+        );
+        _skyBuffer = allocator.createBuffer(
+            sizeof(Data::ProceduralSkyData), vk::BufferUsageFlagBits::eUniformBuffer, memoryProperties
+        );
+        const std::array bufferInfos{
+            vk::DescriptorBufferInfo{ *_environmentBuffer.buffer, 0, sizeof(EnvironmentData) },
+            vk::DescriptorBufferInfo{ *_skyBuffer.buffer, 0, sizeof(Data::ProceduralSkyData) }
+        };
+        std::array<vk::WriteDescriptorSet, 2> writes;
+        for (uint32_t i = 0; i < writes.size(); ++i) {
+            writes[i] = {
+                .dstSet = *_proceduralDescriptorSet,
+                .dstBinding = i,
+                .descriptorCount = 1,
+                .descriptorType = vk::DescriptorType::eUniformBuffer,
+                .pBufferInfo = &bufferInfos[i]
+            };
+        }
+        context.device.updateDescriptorSets(writes, {});
+
         _sourceSampler = vk::raii::Sampler(
             context.device,
             vk::SamplerCreateInfo{
                 .magFilter = vk::Filter::eLinear,
                 .minFilter = vk::Filter::eLinear,
-                .mipmapMode = vk::SamplerMipmapMode::eNearest,
+                .mipmapMode = vk::SamplerMipmapMode::eLinear,
                 .addressModeU = vk::SamplerAddressMode::eRepeat,
                 .addressModeV = vk::SamplerAddressMode::eClampToEdge,
                 .addressModeW = vk::SamplerAddressMode::eClampToEdge,
-                .maxLod = 0.0f
+                .maxLod = VK_LOD_CLAMP_NONE
             }
         );
+
+        const std::array sourceLayouts{ *_descriptorSetLayout };
+        const std::array proceduralLayouts{ *_proceduralDescriptorSetLayout };
+        const tr::Data::EmbeddedShaders::EquirectangularConversion conversion;
+        _environmentPipeline = createPipeline(conversion, CUBEMAPS_FORMAT, sourceLayouts, sizeof(uint32_t));
+
+        const tr::Data::EmbeddedShaders::ProceduralSkyRender procedural;
+        _proceduralPipeline = createPipeline(procedural, CUBEMAPS_FORMAT, proceduralLayouts, sizeof(uint32_t));
+
+        const tr::Data::EmbeddedShaders::IrradianceConvolution irradiance;
+        _irradiancePipeline = createPipeline(irradiance, CUBEMAPS_FORMAT, sourceLayouts, sizeof(uint32_t));
+
+        const tr::Data::EmbeddedShaders::PrefilterEnvironment prefilter;
+        _prefilterPipeline = createPipeline(prefilter, CUBEMAPS_FORMAT, sourceLayouts, sizeof(PrefilterPushConstants));
+
+        const tr::Data::EmbeddedShaders::BRDFIntegration brdf;
+        _brdfPipeline = createPipeline(brdf, vk::Format::eR16G16Sfloat, {}, 0);
     }
 
-    const CubemapConverter::ConversionPipeline& CubemapConverter::pipeline(vk::Format destinationFormat) {
-        if (_pipelines.contains(destinationFormat)) {
-            return _pipelines[destinationFormat];
-        }
-
+    CubemapConverter::ConversionPipeline CubemapConverter::createPipeline(
+        const Shader& shader,
+        vk::Format destinationFormat,
+        std::span<const vk::DescriptorSetLayout> setLayouts,
+        uint32_t pushConstantSize
+    ) {
         const auto formatProperties = _context.physicalDevice.getFormatProperties(destinationFormat);
         if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eColorAttachment)) {
             throw std::runtime_error(
@@ -88,8 +169,7 @@ namespace tr::Rendering::Vulkan {
             );
         }
 
-        tr::Data::EmbeddedShaders::EquirectangularConversion shader;
-        const auto& code = static_cast<const tr::Data::Shader&>(shader).getCode();
+        const auto& code = shader.getCode();
         vk::raii::ShaderModule shaderModule(
             _context.device,
             vk::ShaderModuleCreateInfo{
@@ -139,7 +219,7 @@ namespace tr::Rendering::Vulkan {
             .rasterizerDiscardEnable = vk::False,
             .polygonMode = vk::PolygonMode::eFill,
             .cullMode = vk::CullModeFlagBits::eNone,
-            .frontFace = vk::FrontFace::eClockwise,
+            .frontFace = vk::FrontFace::eCounterClockwise,
             .depthBiasEnable = vk::False,
             .lineWidth = 1.0f
         };
@@ -171,18 +251,19 @@ namespace tr::Rendering::Vulkan {
         const vk::PushConstantRange pushConstantRange{
             .stageFlags = vk::ShaderStageFlagBits::eFragment,
             .offset = 0,
-            .size = sizeof(uint32_t)
+            .size = pushConstantSize
         };
+        const bool hasPushConstants = pushConstantSize > 0;
 
         ConversionPipeline result;
 
         result.layout = vk::raii::PipelineLayout(
             _context.device,
             vk::PipelineLayoutCreateInfo{
-                .setLayoutCount = 1,
-                .pSetLayouts = &*_descriptorSetLayout,
-                .pushConstantRangeCount = 1,
-                .pPushConstantRanges = &pushConstantRange
+                .setLayoutCount = static_cast<uint32_t>(setLayouts.size()),
+                .pSetLayouts = setLayouts.data(),
+                .pushConstantRangeCount = hasPushConstants ? 1u : 0u,
+                .pPushConstantRanges = hasPushConstants ? &pushConstantRange : nullptr
             }
         );
 
@@ -213,9 +294,8 @@ namespace tr::Rendering::Vulkan {
             nullptr,
             pipelineInfo.get<vk::GraphicsPipelineCreateInfo>()
         );
-        _pipelines[destinationFormat] = std::move(result);
 
-        return _pipelines[destinationFormat];
+        return result;
     }
 
     vk::raii::CommandBuffer CubemapConverter::beginCommands() {
@@ -244,49 +324,7 @@ namespace tr::Rendering::Vulkan {
         _context.queue.waitIdle();
     }
 
-    GPUImage CubemapConverter::convertEquirectangular(
-        const GPUImage& source,
-        vk::Format destinationFormat
-    ) {
-        if (
-            source.extent.width < 4 ||
-            source.extent.height < 2 ||
-            source.extent.width != source.extent.height * 2
-        ) {
-            throw tr::Loading::ImportError(
-                "Equirectangular image must have a 2:1 aspect ratio"
-            );
-        }
-
-        const ConversionPipeline& conversionPipeline = pipeline(destinationFormat);
-
-        const uint32_t faceSize = source.extent.width / 4;
-        GPUImage target = _factory.createImage({
-            .flags = vk::ImageCreateFlagBits::eCubeCompatible,
-            .imageType = vk::ImageType::e2D,
-            .viewType = vk::ImageViewType::eCube,
-            .format = destinationFormat,
-            .extent = { faceSize, faceSize, 1 },
-            .mipLevels = 1,
-            .arrayLayers = 6,
-            .usage = vk::ImageUsageFlagBits::eColorAttachment |
-                vk::ImageUsageFlagBits::eSampled
-        });
-
-        std::vector<vk::raii::ImageView> faceViews;
-        faceViews.reserve(6);
-        for (uint32_t face = 0; face < 6; ++face) {
-            faceViews.push_back(_factory.createImageView(target.image, {
-                .viewType = vk::ImageViewType::e2D,
-                .format = destinationFormat,
-                .aspectMask = vk::ImageAspectFlagBits::eColor,
-                .baseMipLevel = 0,
-                .mipLevels = 1,
-                .baseArrayLayer = face,
-                .arrayLayers = 1
-            }));
-        }
-
+    void CubemapConverter::updateSourceTexture(const VulkanImage& source) {
         const vk::DescriptorImageInfo sourceInfo{
             .sampler = *_sourceSampler,
             .imageView = *source.view,
@@ -299,6 +337,48 @@ namespace tr::Rendering::Vulkan {
             .descriptorType = vk::DescriptorType::eCombinedImageSampler,
             .pImageInfo = &sourceInfo
         }}, {});
+    }
+
+    VulkanImage CubemapConverter::renderFaces(
+        const ConversionPipeline& pipeline,
+        std::span<const vk::DescriptorSet> descriptorSets,
+        uint32_t faceSize,
+        bool generateMipmaps
+    ) {
+        const uint32_t mipLevels = generateMipmaps ? std::bit_width(faceSize) : 1;
+        VulkanImage target = _allocator.createImage(
+            {
+                .flags = vk::ImageCreateFlagBits::eCubeCompatible,
+                .imageType = vk::ImageType::e2D,
+                .viewType = vk::ImageViewType::eCube,
+                .format = CUBEMAPS_FORMAT,
+                .extent = { faceSize, faceSize, 1 },
+                .mipLevels = mipLevels,
+                .arrayLayers = 6,
+                .usage =
+                    vk::ImageUsageFlagBits::eColorAttachment |
+                    vk::ImageUsageFlagBits::eSampled |
+                    (
+                        generateMipmaps
+                        ? vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst
+                        : vk::ImageUsageFlags{}
+                    )
+            }
+        );
+
+        std::vector<vk::raii::ImageView> faceViews;
+        faceViews.reserve(6);
+        for (uint32_t face = 0; face < 6; ++face) {
+            faceViews.push_back(_allocator.createImageView(target.image, {
+                .viewType = vk::ImageViewType::e2D,
+                .format = CUBEMAPS_FORMAT,
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0,
+                .mipLevels = 1,
+                .baseArrayLayer = face,
+                .arrayLayers = 1
+            }));
+        }
 
         auto commandBuffer = beginCommands();
 
@@ -338,14 +418,14 @@ namespace tr::Rendering::Vulkan {
         );
         commandBuffer.bindPipeline(
             vk::PipelineBindPoint::eGraphics,
-            *conversionPipeline.pipeline
+            *pipeline.pipeline
         );
         commandBuffer.bindVertexBuffers(0, *_vertexBuffer.buffer, { 0 });
         commandBuffer.bindDescriptorSets(
             vk::PipelineBindPoint::eGraphics,
-            *conversionPipeline.layout,
+            *pipeline.layout,
             0,
-            { *_descriptorSet },
+            vk::ArrayProxy<const vk::DescriptorSet>(descriptorSets.size(), descriptorSets.data()),
             {}
         );
 
@@ -363,7 +443,7 @@ namespace tr::Rendering::Vulkan {
                 .pColorAttachments = &colorAttachment
             });
             commandBuffer.pushConstants(
-                *conversionPipeline.layout,
+                *pipeline.layout,
                 vk::ShaderStageFlagBits::eFragment,
                 0,
                 vk::ArrayProxy<const uint32_t>(face)
@@ -371,6 +451,283 @@ namespace tr::Rendering::Vulkan {
             commandBuffer.draw(3, 1, 0, 0);
             commandBuffer.endRendering();
         }
+
+        _allocator.generateMipmaps(commandBuffer, target, vk::ImageLayout::eColorAttachmentOptimal);
+
+        submitCommands(commandBuffer);
+        return target;
+    }
+
+    VulkanImage CubemapConverter::convertEquirectangular(const VulkanImage& source) {
+        if (
+            source.extent.width < 4 ||
+            source.extent.height < 2 ||
+            source.extent.width != source.extent.height * 2
+        ) {
+            throw tr::Loading::ImportError(
+                "Equirectangular image must have a 2:1 aspect ratio"
+            );
+        }
+
+        updateSourceTexture(source);
+        const std::array sets{ *_descriptorSet };
+        return renderFaces(_environmentPipeline, sets, source.extent.width / 4, true);
+    }
+
+    VulkanImage CubemapConverter::renderProceduralSky(
+        const EnvironmentData& environment,
+        const Data::ProceduralSkyData& sky,
+        uint32_t faceSize
+    ) {
+        void* environmentData = _environmentBuffer.memory.mapMemory(0, sizeof(environment));
+        std::memcpy(environmentData, &environment, sizeof(environment));
+        _environmentBuffer.memory.unmapMemory();
+
+        void* skyData = _skyBuffer.memory.mapMemory(0, sizeof(sky));
+        std::memcpy(skyData, &sky, sizeof(sky));
+        _skyBuffer.memory.unmapMemory();
+
+        const std::array sets{ *_proceduralDescriptorSet };
+        return renderFaces(_proceduralPipeline, sets, faceSize, true);
+    }
+
+    VulkanImage CubemapConverter::convolveIrradiance(const VulkanImage& cubemap) {
+        static constexpr uint32_t IRRADIANCE_FACE_SIZE = 32;
+        updateSourceTexture(cubemap);
+        const std::array sets{ *_descriptorSet };
+        return renderFaces(_irradiancePipeline, sets, IRRADIANCE_FACE_SIZE);
+    }
+
+    VulkanImage CubemapConverter::prefilterEnvironment(const VulkanImage& environment) {
+        static constexpr uint32_t PREFILTER_FACE_SIZE = 128;
+        static constexpr uint32_t PREFILTER_MIP_LEVELS = 5;
+
+        VulkanImage target = _allocator.createImage({
+            .flags = vk::ImageCreateFlagBits::eCubeCompatible,
+            .imageType = vk::ImageType::e2D,
+            .viewType = vk::ImageViewType::eCube,
+            .format = CUBEMAPS_FORMAT,
+            .extent = { PREFILTER_FACE_SIZE, PREFILTER_FACE_SIZE, 1 },
+            .mipLevels = PREFILTER_MIP_LEVELS,
+            .arrayLayers = 6,
+            .usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
+        });
+
+        const vk::DescriptorImageInfo sourceInfo{
+            .sampler = *_sourceSampler,
+            .imageView = *environment.view,
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+        };
+
+        _context.device.updateDescriptorSets(
+            {
+                {
+                    .dstSet = *_descriptorSet,
+                    .dstBinding = 0,
+                    .descriptorCount = 1,
+                    .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+                    .pImageInfo = &sourceInfo,
+                }
+            },
+            {}
+        );
+
+        std::vector<vk::raii::ImageView> views;
+        views.reserve(PREFILTER_MIP_LEVELS * 6);
+
+        for (uint32_t mip = 0; mip < PREFILTER_MIP_LEVELS; ++mip) {
+            for (uint32_t face = 0; face < 6; ++face) {
+                views.push_back(_allocator.createImageView(
+                    target.image,
+                    {
+                        .viewType = vk::ImageViewType::e2D,
+                        .format = CUBEMAPS_FORMAT,
+                        .aspectMask = vk::ImageAspectFlagBits::eColor,
+                        .baseMipLevel = mip,
+                        .mipLevels = 1,
+                        .baseArrayLayer = face,
+                        .arrayLayers = 1,
+                    }
+                ));
+            }
+        }
+
+        auto commandBuffer = beginCommands();
+
+        const vk::ImageMemoryBarrier2 beginBarrier{
+            .srcStageMask = vk::PipelineStageFlagBits2::eTopOfPipe,
+            .srcAccessMask = {},
+            .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+            .oldLayout = vk::ImageLayout::eUndefined,
+            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = *target.image,
+            .subresourceRange = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0,
+                .levelCount = PREFILTER_MIP_LEVELS,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            },
+        };
+
+        commandBuffer.pipelineBarrier2({
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &beginBarrier,
+        });
+
+        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *_prefilterPipeline.pipeline);
+        commandBuffer.bindVertexBuffers(0, *_vertexBuffer.buffer, { 0 });
+        commandBuffer.bindDescriptorSets(
+            vk::PipelineBindPoint::eGraphics,
+            *_prefilterPipeline.layout,
+            0,
+            { *_descriptorSet },
+            {}
+        );
+
+        for (uint32_t mip = 0; mip < PREFILTER_MIP_LEVELS; ++mip) {
+            const uint32_t size = std::max(1u, PREFILTER_FACE_SIZE >> mip);
+            const float roughness = static_cast<float>(mip) / static_cast<float>(PREFILTER_MIP_LEVELS - 1);
+
+            commandBuffer.setViewport(0, vk::Viewport(
+                0.0f, 0.0f,
+                static_cast<float>(size), static_cast<float>(size),
+                0.0f, 1.0f
+            ));
+            commandBuffer.setScissor(0, vk::Rect2D({ 0, 0 }, { size, size }));
+
+            for (uint32_t face = 0; face < 6; ++face) {
+                const size_t viewIndex = mip * 6 + face;
+                const vk::RenderingAttachmentInfo colorAttachment{
+                    .imageView = *views[viewIndex],
+                    .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+                    .loadOp = vk::AttachmentLoadOp::eDontCare,
+                    .storeOp = vk::AttachmentStoreOp::eStore,
+                };
+                commandBuffer.beginRendering({
+                    .renderArea = {
+                        { 0, 0 },
+                        { size, size }
+                    },
+                    .layerCount = 1,
+                    .colorAttachmentCount = 1,
+                    .pColorAttachments = &colorAttachment,
+                });
+
+                PrefilterPushConstants constants{ face, roughness };
+
+                commandBuffer.pushConstants(
+                    *_prefilterPipeline.layout,
+                    vk::ShaderStageFlagBits::eFragment,
+                    0,
+                    vk::ArrayProxy<const PrefilterPushConstants>(1, &constants)
+                );
+
+                commandBuffer.draw(3, 1, 0, 0);
+                commandBuffer.endRendering();
+            }
+        }
+
+        const vk::ImageMemoryBarrier2 endBarrier{
+            .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+            .dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
+            .dstAccessMask = vk::AccessFlagBits2::eShaderRead,
+            .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = *target.image,
+            .subresourceRange = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0,
+                .levelCount = PREFILTER_MIP_LEVELS,
+                .baseArrayLayer = 0,
+                .layerCount = 6,
+            },
+        };
+
+        commandBuffer.pipelineBarrier2({
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &endBarrier,
+        });
+
+        submitCommands(commandBuffer);
+        return target;
+    }
+
+    VulkanImage CubemapConverter::integrateBRDF() {
+        static constexpr uint32_t SIZE = 512;
+
+        VulkanImage target = _allocator.createImage({
+            .imageType = vk::ImageType::e2D,
+            .viewType = vk::ImageViewType::e2D,
+            .format = vk::Format::eR16G16Sfloat,
+            .extent = { SIZE, SIZE, 1 },
+            .mipLevels = 1,
+            .arrayLayers = 1,
+            .usage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
+        });
+
+        auto commandBuffer = beginCommands();
+
+        const vk::ImageMemoryBarrier2 beginBarrier{
+            .srcStageMask = vk::PipelineStageFlagBits2::eTopOfPipe,
+            .srcAccessMask = {},
+            .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
+            .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
+            .oldLayout = vk::ImageLayout::eUndefined,
+            .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = *target.image,
+            .subresourceRange = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+
+        commandBuffer.pipelineBarrier2({
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &beginBarrier,
+        });
+
+        commandBuffer.setViewport(0, vk::Viewport(
+            0.0f, 0.0f,
+            static_cast<float>(SIZE), static_cast<float>(SIZE),
+            0.0f, 1.0f
+        ));
+        commandBuffer.setScissor(
+            0,
+            vk::Rect2D({ 0, 0 }, { SIZE, SIZE })
+        );
+
+        commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *_brdfPipeline.pipeline);
+        commandBuffer.bindVertexBuffers(0, *_vertexBuffer.buffer, { 0 });
+
+        const vk::RenderingAttachmentInfo colorAttachment{
+            .imageView = *target.view,
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eDontCare,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+        };
+        commandBuffer.beginRendering({
+            .renderArea = {
+                { 0, 0 },
+                { SIZE, SIZE }
+            },
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &colorAttachment,
+        });
+        commandBuffer.draw(3, 1, 0, 0);
+        commandBuffer.endRendering();
 
         const vk::ImageMemoryBarrier2 endBarrier{
             .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
@@ -387,15 +744,17 @@ namespace tr::Rendering::Vulkan {
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,
-                .layerCount = 6
-            }
+                .layerCount = 1,
+            },
         };
+
         commandBuffer.pipelineBarrier2({
             .imageMemoryBarrierCount = 1,
-            .pImageMemoryBarriers = &endBarrier
+            .pImageMemoryBarriers = &endBarrier,
         });
 
         submitCommands(commandBuffer);
+
         return target;
     }
 }

@@ -12,7 +12,5 @@ target_include_directories(data
 
 set_target_properties(data PROPERTIES LINKER_LANGUAGE CXX)
 
-target_link_libraries(data INTERFACE resources)
-
 find_package(glm CONFIG REQUIRED)
 target_link_libraries(data INTERFACE glm::glm)

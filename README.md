@@ -24,6 +24,7 @@ Installed through [vcpkg.json](vcpkg.json) manifest:
 
 - GLFW
 - GLM
+- GoogleTest (when `BUILD_TESTS` is enabled)
 - ImGui (Vulkan backend)
 - fmt
 - stb
@@ -49,6 +50,20 @@ cmake --build --preset win-release
 
 Executables are written to `build/win-debug` and `build/win-release`.
 
+## Tests
+
+Tests are disabled by default. Enable the `BUILD_TESTS` CMake option to build them:
+
+```bash
+-DBUILD_TESTS=ON
+```
+
+This also enables the vcpkg `tests` feature, which installs GoogleTest.
+
+The test executable uses an empty implicit-layer search directory to exclude
+third-party overlays; the explicitly requested validation layer remains enabled.
+CTest runs use a shared GPU resource lock and a 180-second timeout per demo.
+
 ## Controls
 
 - Hold right mouse button to look around
@@ -57,44 +72,52 @@ Executables are written to `build/win-debug` and `build/win-release`.
 - Hold `Shift` to move faster
 - `F3` to toggle the UI
 
+## Conventions
+
+- Counter-Clockwise winding
+- Left-handed coordinate system
+
+## Used Resources
+
+- [Vulkan Tutorial](https://docs.vulkan.org/tutorial/latest/) – an ok basics with weird learning curve a the start.
+- [Learn OpenGL](https://learnopengl.com/) – an excellent and clear overview of various techniques that can be applied not only in OpenGL.
+- [Art of Render Graphs](https://alielmorsy.github.io/the-art-of-render-graphs/) – good starting point for understanding the render graph system.
+- [Scratchapixel](https://scratchapixel.com/) – neat source of different 3D rendering techniques
+- [Book of Shaders](https://thebookofshaders.com/)
+
 ## TODO
 
-- **Utility**
-  - [ ] Screenshot Export
-  - [ ] Drag-and-drop model loading
-  - [ ] File Associations
-  - [ ] Recent files
-  - [ ] GPU and CPU profiling
-  - [ ] FPS and frame-time graph
-  - [ ] VRAM and resource usage display
-  - [ ] Debug views of internal buffers and images
-  - [ ] Scene hierarchy
 - **Porting**
+  - [x] Windows
   - [ ] Linux
   - [ ] Web
   - [ ] Android
 - **Rendering Backends**
+  - [x] Vulkan
   - [ ] WebGPU
   - [ ] DirectX
+  - [ ] OpenGL
 - **Rendering Techniques**
   - [x] Skybox Import
-  - [ ] Procedural default skybox
-  - [ ] Instanced Rendering
-  - [ ] Image-based lighting
-  - [ ] Cel-Shading
+  - [x] Render Graph
+  - [x] Image-based lighting
+  - [x] Instanced Rendering
+  - [x] Procedural default skybox
+  - [ ] Toon
   - [ ] Surface Dithering
+  - [ ] Occlusion Culling
+  - [ ] Clouds
   - [ ] Point and spot lights
   - [ ] Imported scene lights
   - [ ] Animations
   - [ ] Cascaded shadow maps
-  - [ ] HDR
   - [ ] GPU Skinning
   - [ ] GPU-driven rendering
   - [ ] OIT
   - [ ] Ray Tracing
 - **Post-processing**
-  - [ ] SSAO
-  - [ ] Tonemapping
+  - [x] HDR and Tonemapping
+  - [ ] Ambient Occlusion
   - [ ] Color grading
   - [ ] Vignette
   - [ ] Film grain
@@ -107,3 +130,16 @@ Executables are written to `build/win-debug` and `build/win-release`.
   - [ ] Motion blur
   - [ ] Fog
   - [ ] Custom runtime fullscreen effects
+- **Utility**
+  - [ ] Multi-file import
+  - [ ] More texture import formats
+  - [ ] Screenshot Export
+  - [ ] Video Recording
+  - [ ] Drag-and-drop model loading
+  - [ ] File Associations
+  - [ ] Recent files
+  - [ ] GPU and CPU profiling
+  - [ ] FPS and frame-time graph
+  - [ ] VRAM and resource usage display
+  - [ ] Debug views of internal buffers and images
+  - [ ] Scene hierarchy

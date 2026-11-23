@@ -32,33 +32,81 @@ function(add_embedded_shader_code shader_name class_name header_file)
     set(EMBEDDED_SHADER_CODE_FILES ${EMBEDDED_SHADER_CODE_FILES} "${code_file}" PARENT_SCOPE)
 endfunction()
 
-add_embedded_shader_code(pbr Pbr pbr.h "${SHADER_SOURCE_DIR}/light.slang")
-add_embedded_shader_code(shadow Shadow shadow.h)
-add_embedded_shader_code(skybox Skybox skybox.h)
+add_embedded_shader_code(
+    pbr 
+    Pbr 
+    pbr.h 
+
+    "${SHADER_SOURCE_DIR}/light.slang"
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(
+    shadow Shadow shadow.h
+
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
+)
+add_embedded_shader_code(skybox Skybox skybox.h 
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(procedural_sky ProceduralSky procedural_sky.h 
+    "${SHADER_SOURCE_DIR}/shared_structs.slang"
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+    "${SHADER_SOURCE_DIR}/procedural_sky_data.slang"
+)
+add_embedded_shader_code(procedural_sky_render ProceduralSkyRender procedural_sky_render.h
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+    "${SHADER_SOURCE_DIR}/procedural_sky_data.slang"
+)
 add_embedded_shader_code(
     equirectangular_conversion
     EquirectangularConversion
-    equirectangular_conversion.h
+    equirectangular_conversion.h 
+
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(
+    irradiance_convolution
+    IrradianceConvolution
+    irradiance_convolution.h
+    
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(
+    prefilter_environment
+    PrefilterEnvironment
+    prefilter_environment.h
+
+    "${SHADER_SOURCE_DIR}/environment.slang"
+    "${SHADER_SOURCE_DIR}/ibl.slang"
+    "${SHADER_SOURCE_DIR}/light.slang"
+    "${SHADER_SOURCE_DIR}/math.slang"
+)
+add_embedded_shader_code(
+    brdf_integration
+    BRDFIntegration
+    brdf_integration.h
+
+    "${SHADER_SOURCE_DIR}/ibl.slang"
+)
+add_embedded_shader_code(
+    post_processing
+    PostProcessing
+    post_processing.h
 )
 
-add_library(embedded_shaders STATIC
-    pbr.h
-    pbr.cpp
-    shadow.h
-    shadow.cpp
-    skybox.h
-    skybox.cpp
-    equirectangular_conversion.h
-    equirectangular_conversion.cpp
-    ${EMBEDDED_SHADER_CODE_FILES}
+file(GLOB SOURCES
+    "*.h"
+    "*.cpp"
 )
+add_library(embedded_shaders STATIC ${SOURCES} ${EMBEDDED_SHADER_CODE_FILES})
 
-target_include_directories(embedded_shaders
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(embedded_shaders
-    PUBLIC
-        data
-)
+target_include_directories(embedded_shaders PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(embedded_shaders PUBLIC data)

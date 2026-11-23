@@ -4,25 +4,35 @@
 #include <string>
 #include <vector>
 
-#include <imgui.h>
+struct ImDrawData;
 
 namespace tr::UI {
-    struct UIWindow {
+    struct UIDrawData {
+        ImDrawData* native = nullptr;
+    };
+
+    struct UISection {
         std::string name;
-        float width = 235.0f;
-        float height = 100.0f;
+        bool opened = false;
         std::function<void()> drawCallback;
-        ImGuiWindowFlags additionalFlags = ImGuiWindowFlags_None;
     };
 
     struct UIState {
-        std::vector<UIWindow*> leftWindows;
-        std::vector<UIWindow*> rightWindows;
+        std::string topLabel;
+        std::vector<UISection> leftSections;
+        std::vector<UISection> rightSections;
+        std::function<void()> drawOverlay;
     };
 
     struct UIFrame {
-        ImDrawData* drawData;
+        const UIDrawData* drawData = nullptr;
         bool wantsMouse = false;
         bool wantsKeyboard = false;
+    };
+
+    enum class SliderFlags {
+        None,
+        AlwaysClamp,
+        WrapAround
     };
 }

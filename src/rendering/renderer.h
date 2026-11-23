@@ -1,43 +1,100 @@
 #pragma once
 
 #include <vector>
+#include <array>
 #include <memory>
 
-#include <imgui.h>
-
+#include "defines.h"
 #include "rhi.h"
 #include "scene.h"
 #include "environment.h"
 #include "camera.h"
-#include "window.h"
+#include "draw_commands.h"
+#include "rendering_structs.h"
+
+#include "skybox_pass.h"
+#include "procedural_sky_pass.h"
+#include "shadow_pass.h"
+#include "color_pass.h"
+#include "post_processing_pass.h"
+#include "ui_pass.h"
+
+#include "pbr.h"
+
+using namespace tr::Data;
 
 namespace tr::Rendering {
     class Renderer {
     private:
-        tr::App::Window& _window;
-        RHI& _renderingInterface;
+        RHI& _rhi;
+
         std::vector<DrawCommand> _opaqueDrawQueue;
-        std::vector<std::pair<DrawCommand, float>> _transparentDrawQueue;
-        std::vector<DrawCommand> _colorDrawQueue;
-        
+        std::vector<DrawCommand> _transparentDrawQueue;
+
+        std::array<Handle<GPUBuffer>, MAX_FRAMES_IN_FLIGHT> _cameraDataBuffers;
+        std::array<Handle<GPUBuffer>, MAX_FRAMES_IN_FLIGHT> _environmentDataBuffers;
+
+        Format _colorFormat = Format::Undefined;
+        uint32_t _samples = 0;
+        glm::vec3 _starAxis{ 1.0f, 0.0f, 0.0f };
+        Handle<Cubemap> _proceduralCubemap;
+        ProceduralSkyData _bakedSkyData;
+        EnvironmentData _bakedSkyEnvironment{};
+
+        Data::EmbeddedShaders::Pbr _mainShader;
+
+        Handle<GPUBuffer> _instanceBuffer;
+        Handle<GPUBuffer> _materialsTableBuffer;
+        std::array<Handle<GPUTexture>, MAX_TEXTURES> _texturesTable;
+
+        std::unique_ptr<SkyboxPass> _skyboxPass;
+        std::unique_ptr<ProceduralSkyPass> _proceduralSkyPass;
+        std::unique_ptr<ShadowPass> _shadowPass;
+        std::unique_ptr<ColorPass> _colorPass;
+        std::unique_ptr<PostProcessingPass> _postProcessingPass;
+        std::unique_ptr<UIPass> _uiPass;
+
+        void updatePipelines(const FrameContext& frame);
+        void updateProceduralCubemap(const EnvironmentData& environment, const ProceduralSkyData& sky);
+        void updateFrameData(
+            FrameContext& frame,
+            const tr::Data::Scene& scene,
+            const tr::Data::Camera& camera,
+            const tr::Data::Environment& environment,
+            float sceneScale
+        );
+        void sortTransparentQueue(const tr::Data::Camera& camera);
+        void setupGraph(
+            RenderGraph& graph,
+            const FrameContext& frame,
+            const tr::Data::Environment& environment,
+            const PostProcessingData& postProcessingData,
+            const UI::UIDrawData* uiDrawData
+        );
+
     public:
-        explicit Renderer(RHI& rhi, tr::App::Window& window);
-        ~Renderer() = default;
+        explicit Renderer(RHI& rhi);
+        ~Renderer();
 
         Renderer(const Renderer&) = delete;
         Renderer& operator=(const Renderer&) = delete;
         Renderer(Renderer&&) = delete;
         Renderer& operator=(Renderer&&) = delete;
 
-        RHI& getInterface() { return _renderingInterface; }
-        RenderingResources& getResources() { return _renderingInterface.resources(); }
+        RHI& getInterface() { return _rhi; }
+        RenderingResources& getResources() { return _rhi.resources(); }
 
-        void clearState();
-        void render(
+        void prepareScene(const tr::Data::Scene& scene);
+        void unloadSceneResources(const tr::Data::Scene& scene);
+        void updateSceneMatrix(const tr::Data::Scene& scene, float sceneScale);
+        void prepareUI();
+        bool render(
             const tr::Data::Scene& scene,
             const tr::Data::Camera& camera,
             const tr::Data::Environment& env,
-            ImDrawData* uiDrawData
+            const tr::Data::PostProcessingData& postProcessingData,
+            const UI::UIDrawData* uiDrawData,
+            float sceneScale
         );
     };
 }

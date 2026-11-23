@@ -1,0 +1,23 @@
+#pragma once
+
+#include <glm/glm.hpp>
+
+namespace tr::Rendering {
+    struct alignas(16) EnvironmentData {
+        glm::vec3 clearColor;
+        float skyboxRotation;
+        glm::vec3 skyboxTint;
+        float skyboxIntensity;
+
+        glm::vec3 lightDirection;
+        float lightIntensity;
+        glm::vec4 lightColor;
+        glm::mat4 lightViewProj;
+        glm::vec4 starAxis;
+
+        alignas(16) glm::vec3 moonRadiance;
+        alignas(16) glm::vec3 moonLight;
+
+        float hasSkybox;
+    };
+}

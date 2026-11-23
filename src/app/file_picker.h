@@ -7,6 +7,8 @@
 #include <vector>
 
 namespace tr::App {
+    class Window;
+
     struct FilePickerFilter {
         std::string name;
         std::string pattern;
@@ -25,5 +27,5 @@ namespace tr::App {
         virtual std::optional<std::filesystem::path> pollResult() = 0;
     };
 
-    std::unique_ptr<FilePicker> createFilePicker();
+    std::unique_ptr<FilePicker> createFilePicker(const Window& owner);
 }

@@ -22,6 +22,7 @@ namespace tr::Rendering::Vulkan {
         std::vector<SwapchainImage> _images;
         vk::Format _format = vk::Format::eUndefined;
         vk::Extent2D _extent{};
+        bool _supportsVsyncToggle = false;
 
     public:
         Swapchain(VulkanContext& context, uint32_t width, uint32_t height);
@@ -31,7 +32,8 @@ namespace tr::Rendering::Vulkan {
         Swapchain(Swapchain&&) = delete;
         Swapchain& operator=(Swapchain&&) = delete;
 
-        void recreate(uint32_t width, uint32_t height);
+        void recreate(uint32_t width, uint32_t height, bool vsyncEnabled);
+        bool supportsVsyncToggle() const { return _supportsVsyncToggle; }
 
         const vk::raii::SwapchainKHR& handle() const { return _swapchain; }
         vk::Format format() const { return _format; }
@@ -40,8 +42,6 @@ namespace tr::Rendering::Vulkan {
 
         vk::Image image(uint32_t index) const { return _images.at(index).image; }
         const vk::raii::ImageView& imageView(uint32_t index) const { return _images.at(index).view; }
-        const vk::raii::Semaphore& renderFinished(uint32_t index) const {
-            return _images.at(index).renderFinished;
-        }
+        const vk::raii::Semaphore& renderFinished(uint32_t index) const { return _images.at(index).renderFinished; }
     };
 }
